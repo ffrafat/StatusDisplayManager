@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>AX206 Display Manager</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-container">
+    
+    <!-- Sidebar Settings -->
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-logo">
+          <svg class="lucide-icon brand-logo-icon" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+        </span>
+        <span class="brand-name">AX206 Control</span>
+      </div>
+      
+      <!-- Connection Card -->
+      <div class="card connection-card">
+        <h3>Display Status</h3>
+        <div class="status-indicator">
+          <span class="status-dot disconnected" id="status-dot"></span>
+          <span class="status-text" id="status-text">Disconnected</span>
+        </div>
+        <button class="btn btn-connect" id="btn-toggle-connect">Connect Display</button>
+      </div>
+
+      <!-- Playlists & Screen settings -->
+      <div class="card screen-settings">
+        <h3>Screens Sequence</h3>
+        <p class="subtitle">Drag-and-drop support coming soon. Toggle active screens:</p>
+        
+        <div class="screen-checkboxes">
+          <div class="checkbox-group">
+            <input type="checkbox" id="chk-clock" checked>
+            <label for="chk-clock">
+              <span class="scr-icon">
+                <svg class="lucide-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              </span> Clock Screen
+            </label>
+            <div class="dur-input">
+              <input type="number" id="dur-clock" value="10" min="2">s
+            </div>
+          </div>
+          
+          <div class="checkbox-group">
+            <input type="checkbox" id="chk-stats" checked>
+            <label for="chk-stats">
+              <span class="scr-icon">
+                <svg class="lucide-icon" viewBox="0 0 24 24"><line x1="18" x2="18" y1="20" y2="10"/><line x1="12" x2="12" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="14"/></svg>
+              </span> Stats Screen
+            </label>
+            <div class="dur-input">
+              <input type="number" id="dur-stats" value="10" min="2">s
+            </div>
+          </div>
+
+          <div class="checkbox-group">
+            <input type="checkbox" id="chk-music" checked>
+            <label for="chk-music">
+              <span class="scr-icon">
+                <svg class="lucide-icon" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+              </span> Music Player
+            </label>
+            <div class="dur-input">
+              <input type="number" id="dur-music" value="10" min="2">s
+            </div>
+          </div>
+
+          <div class="checkbox-group">
+            <input type="checkbox" id="chk-claude" checked>
+            <label for="chk-claude">
+              <span class="scr-icon">
+                <svg class="lucide-icon" viewBox="0 0 24 24"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
+              </span> Claude Usage
+            </label>
+            <div class="dur-input">
+              <input type="number" id="dur-claude" value="10" min="2">s
+            </div>
+          </div>
+
+          <div class="checkbox-group">
+            <input type="checkbox" id="chk-ag" checked>
+            <label for="chk-ag">
+              <span class="scr-icon">
+                <svg class="lucide-icon" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3"/><path d="M15 1v3"/><path d="M9 20v3"/><path d="M15 20v3"/><path d="M20 9h3"/><path d="M20 15h3"/><path d="M1 9h3"/><path d="M1 15h3"/></svg>
+              </span> Antigravity Quota
+            </label>
+            <div class="dur-input">
+              <input type="number" id="dur-ag" value="10" min="2">s
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Footer Version Info -->
+      <div class="sidebar-footer">
+        <span>v1.0.0 (Pure JS)</span>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      
+      <!-- Live Preview Container -->
+      <section class="preview-section">
+        <div class="section-header">
+          <h2>LCD Live Preview</h2>
+          <span class="badge" id="rotation-badge">Next: Stats (10s)</span>
+        </div>
+        
+        <!-- Physical LCD frame effect -->
+        <div class="lcd-frame">
+          <div class="lcd-bezel">
+            <canvas id="lcd-canvas" width="480" height="320"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <!-- System Diagnostic Readout -->
+      <section class="diagnostic-section">
+        <h2>Dashboard Telemetry</h2>
+        <div class="diag-grid">
+          
+          <div class="diag-card">
+            <div class="diag-info">
+              <span class="diag-label">CPU LOAD</span>
+              <span class="diag-value" id="diag-cpu">--%</span>
+            </div>
+            <div class="diag-icon">
+              <svg class="lucide-icon" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3"/><path d="M15 1v3"/><path d="M9 20v3"/><path d="M15 20v3"/><path d="M20 9h3"/><path d="M20 15h3"/><path d="M1 9h3"/><path d="M1 15h3"/></svg>
+            </div>
+          </div>
+
+          <div class="diag-card">
+            <div class="diag-info">
+              <span class="diag-label">RAM USED</span>
+              <span class="diag-value" id="diag-ram">--%</span>
+            </div>
+            <div class="diag-icon">
+              <svg class="lucide-icon" viewBox="0 0 24 24"><path d="M6 19v-3"/><path d="M10 19v-3"/><path d="M14 19v-3"/><path d="M18 19v-3"/><path d="M8 11V9"/><path d="M16 11V9"/><path d="M12 11V9"/><path d="M2 15h20"/><path d="M2 7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2Z"/></svg>
+            </div>
+          </div>
+
+          <div class="diag-card">
+            <div class="diag-info">
+              <span class="diag-label">ACTIVE APP</span>
+              <span class="diag-value value-text" id="diag-app">--</span>
+            </div>
+            <div class="diag-icon">
+              <svg class="lucide-icon" viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>
+            </div>
+          </div>
+
+          <div class="diag-card">
+            <div class="diag-info">
+              <span class="diag-label">NOW PLAYING</span>
+              <span class="diag-value value-text" id="diag-music">Nothing playing</span>
+            </div>
+            <div class="diag-icon">
+              <svg class="lucide-icon" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- Console / Logs panel -->
+      <section class="logs-section">
+        <h2>Device Logs</h2>
+        <div class="console-box" id="console-box">
+          <div class="log-line system">App initialized. Welcome to AX206 Manager.</div>
+        </div>
+      </section>
+
+    </main>
+
+  </div>
+
+  <!-- Hidden assets for canvas rendering -->
+  <img id="img-claude-logo" src="claude-logo.png" style="display: none;">
+  <img id="img-antigravity-logo" src="antigravity.png" style="display: none;">
+
+  <script src="renderer.js"></script>
+</body>
+</html>

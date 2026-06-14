@@ -1,0 +1,38 @@
+{
+  "name": "ax206-node-gui",
+  "version": "1.0.0",
+  "description": "Electron GUI and Node.js driver for the AX206 USB Display",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win"
+  },
+  "dependencies": {
+    "systeminformation": "^5.22.7",
+    "usb": "^2.13.0"
+  },
+  "devDependencies": {
+    "electron": "^31.0.1",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.ax206.displaymanager",
+    "productName": "AX206DisplayManager",
+    "win": {
+      "target": "portable"
+    },
+    "files": [
+      "**/*",
+      "!dist/**/*"
+    ]
+  },
+  "keywords": [
+    "ax206",
+    "usb",
+    "display",
+    "electron",
+    "sysmon"
+  ],
+  "author": "",
+  "license": "GPL-3.0"
+}
