@@ -1,7 +1,9 @@
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const http = require('http');
+const https = require('https');
 const si = require('systeminformation');
 
 // Cache for Antigravity server details
@@ -272,7 +274,191 @@ async function fetchAgUsage() {
   }
 }
 
+// Helper to download files dynamically
+function downloadFile(url, destPath) {
+  return new Promise((resolve, reject) => {
+    const parsedUrl = new URL(url);
+    const options = {
+      hostname: parsedUrl.hostname,
+      port: 443,
+      path: parsedUrl.pathname + parsedUrl.search,
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      },
+      rejectUnauthorized: false
+    };
+
+    const file = fs.createWriteStream(destPath);
+    const req = https.request(options, (response) => {
+      if (response.statusCode !== 200) {
+        file.close(() => {
+          fs.unlink(destPath, () => {});
+        });
+        reject(new Error(`Failed to download: HTTP ${response.statusCode}`));
+        return;
+      }
+      response.pipe(file);
+      file.on('finish', () => {
+        file.close(resolve);
+      });
+    });
+
+    req.on('error', (err) => {
+      file.close(() => {
+        fs.unlink(destPath, () => {});
+      });
+      reject(err);
+    });
+
+    req.end();
+  });
+}
+
+function httpsGetJson(url) {
+  return new Promise((resolve, reject) => {
+    const parsedUrl = new URL(url);
+    const options = {
+      hostname: parsedUrl.hostname,
+      port: 443,
+      path: parsedUrl.pathname + parsedUrl.search,
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      },
+      rejectUnauthorized: false
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        if (res.statusCode !== 200) {
+          reject(new Error(`HTTP ${res.statusCode}`));
+          return;
+        }
+        try {
+          resolve(JSON.parse(data));
+        } catch (e) {
+          reject(new Error("Failed to parse JSON"));
+        }
+      });
+    });
+
+    req.on('error', (e) => { reject(e); });
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error("Timeout"));
+    });
+    req.setTimeout(5000);
+    req.end();
+  });
+}
+
+const BANGLA_PRODUCTS = [
+  {
+    id: "02b6b237-2875-44a4-80ea-e720f8d7d488",
+    localIcon: "product_purno.png"
+  },
+  {
+    id: "904bfa8b-5dd4-4f9b-b0dc-568d381717af",
+    localIcon: "product_sothik.png"
+  },
+  {
+    id: "602a728d-b718-47ee-906f-d153f05d99fc",
+    localIcon: "product_banglaword.png"
+  }
+];
+
+async function fetchBanglaGovData() {
+  try {
+    const data = await httpsGetJson("https://bangla.gov.bd/api/bangla-gov-bd/bangla-gov-bd/");
+
+    // Ensure our local directory files are downloaded
+    // 1. bangla.png (header logo)
+    const banglaLocalPath = path.join(__dirname, 'bangla.png');
+    let shouldDownloadBangla = false;
+    try {
+      if (!fs.existsSync(banglaLocalPath)) {
+        shouldDownloadBangla = true;
+      } else if (fs.statSync(banglaLocalPath).size === 0) {
+        shouldDownloadBangla = true;
+        fs.unlinkSync(banglaLocalPath);
+      }
+    } catch (e) {
+      shouldDownloadBangla = true;
+    }
+
+    if (shouldDownloadBangla) {
+      try {
+        await downloadFile("https://bangla.gov.bd/banglaLogo.png", banglaLocalPath);
+        console.log("Downloaded bangla.png");
+      } catch (err) {
+        console.error("Failed to download bangla.png:", err.message);
+      }
+    }
+
+    const tools = [];
+    for (const prodDef of BANGLA_PRODUCTS) {
+      const match = data.find(item => item.id === prodDef.id);
+      if (match) {
+        // Download the product icon if missing or 0 bytes
+        const iconLocalPath = path.join(__dirname, prodDef.localIcon);
+        let shouldDownloadIcon = false;
+        try {
+          if (!fs.existsSync(iconLocalPath)) {
+            shouldDownloadIcon = true;
+          } else if (fs.statSync(iconLocalPath).size === 0) {
+            shouldDownloadIcon = true;
+            fs.unlinkSync(iconLocalPath);
+          }
+        } catch (e) {
+          shouldDownloadIcon = true;
+        }
+
+        if (shouldDownloadIcon && match.icon) {
+          try {
+            // Absolute URL from relative path: match.icon starts with /media/...
+            const absoluteIconUrl = `https://bangla.gov.bd${match.icon}`;
+            await downloadFile(absoluteIconUrl, iconLocalPath);
+            console.log(`Downloaded ${prodDef.localIcon}`);
+          } catch (err) {
+            console.error(`Failed to download ${prodDef.localIcon}:`, err.message);
+          }
+        }
+
+        tools.push({
+          id: match.id,
+          title: match.title,
+          title_en: match.title_en,
+          version: match.version,
+          type: match.type,
+          type_en: match.type_en,
+          downloadCount: match.downloaded_file_count || 0,
+          localIcon: prodDef.localIcon
+        });
+      }
+    }
+
+    return {
+      ok: true,
+      tools: tools,
+      error: null,
+      last_update: Date.now()
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      tools: [],
+      error: e.message,
+      last_update: Date.now()
+    };
+  }
+}
+
 module.exports = {
   fetchClaudeUsage,
-  fetchAgUsage
+  fetchAgUsage,
+  fetchBanglaGovData
 };

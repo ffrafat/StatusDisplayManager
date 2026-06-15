@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>AX206 Dashboard Layout Previews</title>
+  <style>
+    body {
+      background-color: #06080d;
+      color: #f0f4fc;
+      font-family: 'Inter', sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 40px 20px;
+    }
+    h1 {
+      font-family: 'Outfit', sans-serif;
+      margin-bottom: 5px;
+    }
+    p {
+      color: #90a0c7;
+      margin-bottom: 40px;
+      font-size: 14px;
+      text-align: center;
+    }
+    .preview-container {
+      display: flex;
+      flex-direction: column;
+      gap: 50px;
+      align-items: center;
+    }
+    .preview-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 15px;
+      background: rgba(20, 24, 38, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 16px;
+      padding: 24px;
+      backdrop-filter: blur(10px);
+    }
+    .preview-card h2 {
+      margin: 0;
+      font-family: 'Outfit', sans-serif;
+      font-size: 20px;
+      color: #00e5ff;
+    }
+    canvas {
+      border: 4px solid #282f47;
+      border-radius: 12px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+      background-color: #000;
+      max-width: 100%;
+    }
+    button {
+      background: linear-gradient(135deg, #00e5ff, #0084ff);
+      border: none;
+      color: white;
+      padding: 10px 24px;
+      font-size: 13px;
+      font-weight: 600;
+      border-radius: 6px;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(0, 132, 255, 0.2);
+      transition: all 0.2s;
+      font-family: inherit;
+    }
+    button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(0, 229, 255, 0.4);
+    }
+  </style>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <h1>AX206 Dashboard Layout Previews</h1>
+  <p>Below are the pixel-perfect layouts (960x640 canvas) generated from your current screen rendering codebase.</p>
+  
+  <div class="preview-container">
+    <!-- Music Preview -->
+    <div class="preview-card">
+      <h2>1. Redesigned Music Screen</h2>
+      <canvas id="music-canvas" width="960" height="640"></canvas>
+      <button id="btn-save-music">Save Music Screen PNG</button>
+    </div>
+
+    <!-- Bangla.gov.bd Preview -->
+    <div class="preview-card">
+      <h2>2. Bangla.gov.bd Tools Stats Screen</h2>
+      <canvas id="bangla-canvas" width="960" height="640"></canvas>
+      <button id="btn-save-bangla">Save Bangla Screen PNG</button>
+    </div>
+  </div>
+
+  <script>
+    const PALETTE = {
+      bg: '#0a0c10',
+      panel: '#141820',
+      ink: '#f0f4fc',
+      muted: '#5e6d91',
+      track: '#202738',
+      music: '#f43f5e'
+    };
+
+    function drawCard(ctx, x, y, w, h, r, color) {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.roundRect(x, y, w, h, r);
+      ctx.fill();
+    }
+
+    function drawIconMusic(ctx, cx, cy, sz, color) {
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.scale(sz / 24, sz / 24);
+      
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      ctx.beginPath();
+      ctx.moveTo(9 - 12, 18 - 12);
+      ctx.lineTo(9 - 12, 5 - 12);
+      ctx.lineTo(21 - 12, 3 - 12);
+      ctx.lineTo(21 - 12, 16 - 12);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(6 - 12, 18 - 12, 3, 0, Math.PI * 2);
+      ctx.arc(18 - 12, 16 - 12, 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+    }
+
+    // ============================================
+    // 1. Music Screen Renderer Setup
+    // ============================================
+    const musicCanvas = document.getElementById('music-canvas');
+    const musicCtx = musicCanvas.getContext('2d');
+
+    const currentMedia = {
+      title: "After Hours",
+      artist: "The Weeknd",
+      album: "After Hours - Single",
+      player: "Spotify",
+      playing: true
+    };
+    const cachedArtworkImage = null;
+    const isArtworkLoading = false;
+
+    function renderMusic(ctx) {
+      ctx.fillStyle = PALETTE.bg;
+      ctx.fillRect(0, 0, 960, 640);
+
+      const cardW = 896;
+      const cardH = 500;
+      const cardX = 32;
+      const cardY = 70;
+
+      drawCard(ctx, cardX, cardY, cardW, cardH, 24, PALETTE.panel);
+
+      const artX = cardX + 50;
+      const artY = cardY + 70;
+      const artSize = 360;
+
+      // Fallback placeholder (gradient + icon)
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(artX, artY, artSize, artSize, 16);
+      ctx.clip();
+      const grad = ctx.createLinearGradient(artX, artY, artX, artY + artSize);
+      grad.addColorStop(0, '#1e222b');
+      grad.addColorStop(1, '#0e1014');
+      ctx.fillStyle = grad;
+      ctx.fill();
+      drawIconMusic(ctx, artX + artSize / 2, artY + artSize / 2, 80, PALETTE.music);
+      ctx.restore();
+
+      const detailsX = 500;
+      const textTitle = currentMedia.title;
+      const textArtist = currentMedia.artist;
+      const textAlbum = currentMedia.album;
+
+      // Music Provider Badge
+      ctx.fillStyle = PALETTE.track;
+      ctx.beginPath();
+      ctx.roundRect(detailsX, cardY + 40, 200, 46, 23);
+      ctx.fill();
+      drawIconMusic(ctx, detailsX + 30, cardY + 63, 18, PALETTE.music);
+      
+      ctx.fillStyle = PALETTE.music;
+      ctx.font = 'bold 18px Outfit, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(currentMedia.player, detailsX + 52, cardY + 63);
+
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+
+      // Title
+      ctx.fillStyle = PALETTE.ink;
+      ctx.font = 'bold 44px Outfit, sans-serif';
+      let displayTitle = textTitle;
+      if (displayTitle.length > 18) displayTitle = displayTitle.substring(0, 16) + '...';
+      ctx.fillText(displayTitle, detailsX, 200);
+
+      // Artist
+      ctx.fillStyle = PALETTE.music;
+      ctx.font = '500 32px Outfit, sans-serif';
+      let displayArtist = textArtist;
+      if (displayArtist.length > 22) displayArtist = displayArtist.substring(0, 19) + '...';
+      ctx.fillText(displayArtist, detailsX, 270);
+
+      // Album
+      if (textAlbum) {
+        ctx.fillStyle = PALETTE.muted;
+        ctx.font = '300 24px Inter, sans-serif';
+        let displayAlbum = textAlbum;
+        if (displayAlbum.length > 25) displayAlbum = displayAlbum.substring(0, 22) + '...';
+        ctx.fillText(displayAlbum, detailsX, 330);
+      }
+
+      // Draw wave visualizer
+      const waveX = detailsX;
+      const waveY = 440;
+      ctx.fillStyle = PALETTE.music;
+      const barCount = 18;
+      for (let i = 0; i < barCount; i++) {
+        const waveH = 15 + Math.sin((Date.now() / 150) + i) * 15 + Math.random() * 8;
+        drawCard(ctx, waveX + (i * 20), waveY - (waveH / 2), 10, waveH, 4, PALETTE.music);
+      }
+    }
+
+    // ============================================
+    // 2. Bangla.gov.bd Screen Renderer Setup
+    // ============================================
+    const banglaCanvas = document.getElementById('bangla-canvas');
+    const banglaCtx = banglaCanvas.getContext('2d');
+
+    const currentBanglaGovData = {
+      ok: true,
+      tools: [
+        {
+          id: "02b6b237-2875-44a4-80ea-e720f8d7d488",
+          title_en: "Purno - Bangla Typeface",
+          version: "2.0",
+          type_en: "Typeface",
+          downloadCount: 8182
+        },
+        {
+          id: "904bfa8b-5dd4-4f9b-b0dc-568d381717af",
+          title_en: "Sothik Grammar Word Add-in",
+          version: "1.0.0",
+          type_en: "Windows App",
+          downloadCount: 2430
+        },
+        {
+          id: "602a728d-b718-47ee-906f-d153f05d99fc",
+          title_en: "Bangla Word Add-in",
+          version: "1.3",
+          type_en: "Windows App",
+          downloadCount: 8803
+        }
+      ]
+    };
+
+    function renderBanglaGov(ctx) {
+      ctx.fillStyle = PALETTE.bg;
+      ctx.fillRect(0, 0, 960, 640);
+
+      // Header line
+      ctx.font = 'bold 36px Outfit, sans-serif';
+      ctx.fillStyle = PALETTE.ink;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText("bangla.gov.bd", 120, 50);
+
+      // Draw Fallback Header Logo Placeholder (red-green circle block)
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(67, 50, 32, 0, Math.PI * 2);
+      ctx.fillStyle = '#128C7E';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(67, 50, 16, 0, Math.PI * 2);
+      ctx.fillStyle = '#ff3d00';
+      ctx.fill();
+      ctx.restore();
+
+      ctx.strokeStyle = PALETTE.track;
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(32, 100);
+      ctx.lineTo(928, 100);
+      ctx.stroke();
+
+      const tools = currentBanglaGovData.tools;
+
+      // Row layouts (3 products)
+      const cardW = 896;
+      const cardH = 140;
+      const cardX = 32;
+      const positionsY = [130, 290, 450];
+
+      tools.forEach((tool, idx) => {
+        const cardY = positionsY[idx];
+
+        // Draw card panel
+        drawCard(ctx, cardX, cardY, cardW, cardH, 20, PALETTE.panel);
+
+        // Draw product icon placeholder
+        const iconX = cardX + 30;
+        const iconY = cardY + 30;
+        const iconSize = 80;
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.roundRect(iconX, iconY, iconSize, iconSize, 14);
+        ctx.clip();
+        const grad = ctx.createLinearGradient(iconX, iconY, iconX, iconY + iconSize);
+        grad.addColorStop(0, '#ffab00');
+        grad.addColorStop(1, '#ff3d00');
+        ctx.fillStyle = grad;
+        ctx.fill();
+        drawIconMusic(ctx, iconX + iconSize/2, iconY + iconSize/2, 36, '#ffffff');
+        ctx.restore();
+
+        // Title and Version/Type details
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+
+        // Title
+        ctx.fillStyle = PALETTE.ink;
+        ctx.font = 'bold 28px Outfit, sans-serif';
+        ctx.fillText(tool.title_en, cardX + 135, cardY + 45);
+
+        // Subtitle: Version & Type
+        ctx.fillStyle = PALETTE.muted;
+        ctx.font = '300 20px Inter, sans-serif';
+        ctx.fillText(`v${tool.version}  ·  ${tool.type_en}`, cardX + 135, cardY + 95);
+
+        // Downloads on Right
+        ctx.textAlign = 'right';
+
+        // Download number
+        ctx.fillStyle = '#00e5ff'; // Aqua accent
+        ctx.font = 'bold 36px Outfit, sans-serif';
+        const numStr = Number(tool.downloadCount).toLocaleString();
+        ctx.fillText(numStr, cardX + cardW - 30, cardY + 45);
+
+        // DOWNLOADS label
+        ctx.fillStyle = PALETTE.muted;
+        ctx.font = 'bold 14px Inter, sans-serif';
+        ctx.fillText("DOWNLOADS", cardX + cardW - 30, cardY + 95);
+      });
+    }
+
+    // ============================================
+    // Main Render Loop
+    // ============================================
+    function loop() {
+      renderMusic(musicCtx);
+      renderBanglaGov(banglaCtx);
+      requestAnimationFrame(loop);
+    }
+    loop();
+
+    // Save PNG listeners
+    document.getElementById('btn-save-music').addEventListener('click', () => {
+      const link = document.createElement('a');
+      link.download = 'music_player_render.png';
+      link.href = musicCanvas.toDataURL('image/png');
+      link.click();
+    });
+
+    document.getElementById('btn-save-bangla').addEventListener('click', () => {
+      const link = document.createElement('a');
+      link.download = 'bangla_tools_render.png';
+      link.href = banglaCanvas.toDataURL('image/png');
+      link.click();
+    });
+  </script>
+</body>
+</html>

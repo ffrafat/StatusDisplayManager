@@ -1,9 +1,10 @@
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const { AX206Display } = require('./driver');
 const { getStats } = require('./stats');
 const { getActiveApp, getPlayingMedia } = require('./media');
-const { fetchClaudeUsage, fetchAgUsage } = require('./providers');
+const { fetchClaudeUsage, fetchAgUsage, fetchBanglaGovData } = require('./providers');
 
 let mainWindow = null;
 let display = null;
@@ -14,8 +15,10 @@ let isWriting = false;
 // Caches for API pollers
 let claudeUsage = { ok: false, error: "Initial loading..." };
 let agUsage = { available: false, groups: [], error: "Initial loading..." };
+let banglaGovData = { ok: false, tools: [], error: "Initial loading..." };
 let lastClaudePoll = 0;
 let lastAgPoll = 0;
+let lastBanglaPoll = 0;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -82,6 +85,22 @@ function startStatsPolling() {
       });
     }
 
+    // Poll Bangla.gov.bd stats every 60 seconds (non-blocking)
+    if (now - lastBanglaPoll > 60000) {
+      lastBanglaPoll = now;
+      fetchBanglaGovData().then(data => {
+        banglaGovData = data;
+        if (!data.ok) {
+          logToUI(`Bangla API error: ${data.error}`, "error");
+        } else {
+          logToUI("Bangla.gov.bd API stats loaded successfully.", "success");
+        }
+      }).catch(e => {
+        banglaGovData = { ok: false, tools: [], error: e.message };
+        logToUI(`Bangla API crash: ${e.message}`, "error");
+      });
+    }
+
     // Collect fast-changing OS telemetry in parallel
     const [stats, activeApp, media] = await Promise.all([
       getStats(),
@@ -90,14 +109,17 @@ function startStatsPolling() {
     ]);
 
     // Send combined data payload to renderer UI
-    mainWindow.webContents.send('tick-data', {
-      stats,
-      activeApp,
-      media,
-      claudeUsage,
-      agUsage,
-      displayConnected
-    });
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
+      mainWindow.webContents.send('tick-data', {
+        stats,
+        activeApp,
+        media,
+        claudeUsage,
+        agUsage,
+        banglaGovData,
+        displayConnected
+      });
+    }
   }, 1000);
 }
 
@@ -111,7 +133,7 @@ function stopStatsPolling() {
 
 // Log a message in the renderer UI console
 function logToUI(msg, type = 'info') {
-  if (mainWindow) {
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
     mainWindow.webContents.send('log-message', { msg, type });
   }
 }
@@ -127,14 +149,14 @@ async function connectDisplay() {
     display.open();
     displayConnected = true;
     logToUI("AX206 Screen connected successfully!", "success");
-    if (mainWindow) {
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
       mainWindow.webContents.send('display-status', { connected: true });
     }
     return true;
   } catch (e) {
     displayConnected = false;
     logToUI(`Connection failed: ${e.message}`, "error");
-    if (mainWindow) {
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
       mainWindow.webContents.send('display-status', { connected: false });
     }
     return false;
@@ -150,7 +172,7 @@ function disconnectDisplay() {
   }
   displayConnected = false;
   logToUI("Disconnected from display.", "info");
-  if (mainWindow) {
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
     mainWindow.webContents.send('display-status', { connected: false });
   }
 }
@@ -178,7 +200,7 @@ ipcMain.on('draw-frame', async (event, rgbaBuffer) => {
   } catch (e) {
     logToUI(`USB blit error: ${e.message}`, "error");
     displayConnected = false;
-    if (mainWindow) {
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
       mainWindow.webContents.send('display-status', { connected: false });
     }
     

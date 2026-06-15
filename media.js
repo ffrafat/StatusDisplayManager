@@ -26,17 +26,53 @@ function runPowerShell(code) {
 
 const WINDOWS_MEDIA_PS = `
 [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager, Windows.Media.Control.Playlists, ContentType=WindowsRuntime] | Out-Null
+[Windows.Storage.Streams.DataReader, Windows.Storage.Streams, ContentType=WindowsRuntime] | Out-Null
 try {
   $manager = [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync().GetResults()
-  $session = $manager.GetCurrentSession()
+  $session = $null
+  $sessions = $manager.GetSessions()
+  if ($sessions) {
+      foreach ($s in $sessions) {
+          $info = $s.TryGetInfoAsync().GetResults()
+          if ($info -and $info.PlaybackStatus.ToString() -eq 'Playing') {
+              $session = $s
+              break
+          }
+      }
+      if (-not $session) {
+          $session = $manager.GetCurrentSession()
+      }
+      if (-not $session -and $sessions.Count -gt 0) {
+          $session = $sessions[0]
+      }
+  } else {
+      $session = $manager.GetCurrentSession()
+  }
   if ($session) {
       $info = $session.TryGetInfoAsync().GetResults()
       $props = $session.TryGetMediaPropertiesAsync().GetResults()
+      
+      $base64 = $null
+      if ($props.Thumbnail) {
+        try {
+          $stream = $props.Thumbnail.OpenReadAsync().GetResults()
+          $reader = New-Object Windows.Storage.Streams.DataReader($stream)
+          $size = $stream.Size
+          $reader.LoadAsync($size).GetResults() | Out-Null
+          $bytes = New-Object byte[] $size
+          $reader.ReadBytes($bytes)
+          $base64 = [Convert]::ToBase64String($bytes)
+        } catch {
+          # Ignore thumbnail exceptions so the track metadata can still be returned
+        }
+      }
+
       $obj = [PSCustomObject]@{
           title = $props.Title
           artist = $props.Artist
           album = $props.AlbumTitle
           status = $info.PlaybackStatus.ToString()
+          thumbnail = $base64
       }
       $obj | ConvertTo-Json -Compress
   } else {
@@ -172,7 +208,8 @@ async function getPlayingMedia() {
           artist: data.artist || 'Unknown Artist',
           album: data.album || '',
           player: 'System Media',
-          playing: data.status === 'Playing'
+          playing: data.status === 'Playing',
+          thumbnail: data.thumbnail || null
         };
       }
     } else if (platform === 'darwin') {

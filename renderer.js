@@ -19,6 +19,7 @@ const chkStats = document.getElementById('chk-stats');
 const chkMusic = document.getElementById('chk-music');
 const chkClaude = document.getElementById('chk-claude');
 const chkAg = document.getElementById('chk-ag');
+const chkBangla = document.getElementById('chk-bangla');
 
 // Screen Duration Inputs
 const durClock = document.getElementById('dur-clock');
@@ -26,10 +27,15 @@ const durStats = document.getElementById('dur-stats');
 const durMusic = document.getElementById('dur-music');
 const durClaude = document.getElementById('dur-claude');
 const durAg = document.getElementById('dur-ag');
+const durBangla = document.getElementById('dur-bangla');
 
 // Hidden Assets
 const imgClaudeLogo = document.getElementById('img-claude-logo');
 const imgAgLogo = document.getElementById('img-antigravity-logo');
+const imgBanglaLogo = document.getElementById('img-bangla-logo');
+const imgProdPurno = document.getElementById('img-prod-purno');
+const imgProdSothik = document.getElementById('img-prod-sothik');
+const imgProdBanglaWord = document.getElementById('img-prod-banglaword');
 
 // Canvas Setup
 const lcdCanvas = document.getElementById('lcd-canvas');
@@ -48,6 +54,12 @@ let currentActiveApp = null;
 let currentMedia = null;
 let currentClaudeUsage = null;
 let currentAgUsage = null;
+let currentBanglaGovData = null;
+
+// Artwork cache
+let cachedArtworkImage = null;
+let cachedArtworkBase64 = null;
+let isArtworkLoading = false;
 
 // Screen rotation variables
 let screenList = ['clock', 'stats', 'music'];
@@ -61,12 +73,14 @@ function loadPreferences() {
   chkMusic.checked = localStorage.getItem('chk-music') !== 'false';
   chkClaude.checked = localStorage.getItem('chk-claude') !== 'false';
   chkAg.checked = localStorage.getItem('chk-ag') !== 'false';
+  chkBangla.checked = localStorage.getItem('chk-bangla') !== 'false';
 
   durClock.value = localStorage.getItem('dur-clock') || '10';
   durStats.value = localStorage.getItem('dur-stats') || '10';
   durMusic.value = localStorage.getItem('dur-music') || '10';
   durClaude.value = localStorage.getItem('dur-claude') || '10';
   durAg.value = localStorage.getItem('dur-ag') || '10';
+  durBangla.value = localStorage.getItem('dur-bangla') || '10';
 }
 
 function savePreferences() {
@@ -75,18 +89,20 @@ function savePreferences() {
   localStorage.setItem('chk-music', chkMusic.checked);
   localStorage.setItem('chk-claude', chkClaude.checked);
   localStorage.setItem('chk-ag', chkAg.checked);
+  localStorage.setItem('chk-bangla', chkBangla.checked);
 
   localStorage.setItem('dur-clock', durClock.value);
   localStorage.setItem('dur-stats', durStats.value);
   localStorage.setItem('dur-music', durMusic.value);
   localStorage.setItem('dur-claude', durClaude.value);
   localStorage.setItem('dur-ag', durAg.value);
+  localStorage.setItem('dur-bangla', durBangla.value);
 }
 
 // Attach listeners to save on change
 [
-  chkClock, chkStats, chkMusic, chkClaude, chkAg,
-  durClock, durStats, durMusic, durClaude, durAg
+  chkClock, chkStats, chkMusic, chkClaude, chkAg, chkBangla,
+  durClock, durStats, durMusic, durClaude, durAg, durBangla
 ].forEach(el => {
   el.addEventListener('change', () => {
     savePreferences();
@@ -96,11 +112,22 @@ function savePreferences() {
 
 // Update the list of screens to rotate
 function updateScreenList() {
+  const isPlaying = currentMedia && currentMedia.playing;
+  
+  // Lock on music screen if playing and music screen is enabled
+  if (chkMusic.checked && isPlaying) {
+    screenList = ['music'];
+    if (currentScreen !== 'music') {
+      currentScreen = 'music';
+      screenStartTime = Date.now();
+    }
+    return;
+  }
+
   const list = [];
   if (chkClock.checked) list.push('clock');
   if (chkStats.checked) list.push('stats');
   
-  const isPlaying = currentMedia && currentMedia.playing;
   if (chkMusic.checked && isPlaying) {
     list.push('music');
   }
@@ -112,6 +139,10 @@ function updateScreenList() {
   const isAgActive = currentAgUsage && currentAgUsage.available;
   if (chkAg.checked && isAgActive) {
     list.push('ag');
+  }
+
+  if (chkBangla.checked && currentBanglaGovData && currentBanglaGovData.ok) {
+    list.push('bangla');
   }
 
   screenList = list.length > 0 ? list : ['clock'];
@@ -177,7 +208,29 @@ ipcRenderer.on('tick-data', (event, data) => {
   currentMedia = data.media;
   currentClaudeUsage = data.claudeUsage;
   currentAgUsage = data.agUsage;
+  currentBanglaGovData = data.banglaGovData;
   displayConnected = data.displayConnected;
+
+  // Handle album art loading and caching
+  if (currentMedia && currentMedia.thumbnail) {
+    if (cachedArtworkBase64 !== currentMedia.thumbnail) {
+      cachedArtworkBase64 = currentMedia.thumbnail;
+      isArtworkLoading = true;
+      const img = new Image();
+      img.onload = () => {
+        cachedArtworkImage = img;
+        isArtworkLoading = false;
+      };
+      img.onerror = () => {
+        cachedArtworkImage = null;
+        isArtworkLoading = false;
+      };
+      img.src = 'data:image/png;base64,' + currentMedia.thumbnail;
+    }
+  } else {
+    cachedArtworkBase64 = null;
+    cachedArtworkImage = null;
+  }
 
   // Update connection status
   if (displayConnected) {
@@ -210,6 +263,19 @@ ipcRenderer.on('tick-data', (event, data) => {
     diagMusic.textContent = 'Nothing playing';
   }
 
+  // Dynamic Image Reloader for Bangla Gov assets
+  const checkAndReloadImage = (imgId, localFile) => {
+    const img = document.getElementById(imgId);
+    if (img && (!img.complete || img.naturalWidth === 0)) {
+      img.src = '';
+      img.src = localFile;
+    }
+  };
+  checkAndReloadImage('img-bangla-logo', 'bangla.png');
+  checkAndReloadImage('img-prod-purno', 'product_purno.png');
+  checkAndReloadImage('img-prod-sothik', 'product_sothik.png');
+  checkAndReloadImage('img-prod-banglaword', 'product_banglaword.png');
+
   updateScreenList();
 });
 
@@ -235,6 +301,7 @@ function getDuration(screen) {
   if (screen === 'music') return parseInt(durMusic.value) || 10;
   if (screen === 'claude') return parseInt(durClaude.value) || 10;
   if (screen === 'ag') return parseInt(durAg.value) || 10;
+  if (screen === 'bangla') return parseInt(durBangla.value) || 10;
   return 10;
 }
 
@@ -635,7 +702,6 @@ function renderStats(ctx) {
 }
 
 // 3. Music Player Screen Renderer
-let discRotation = 0;
 function renderMusic(ctx) {
   ctx.fillStyle = PALETTE.bg;
   ctx.fillRect(0, 0, 960, 640);
@@ -647,75 +713,55 @@ function renderMusic(ctx) {
 
   drawCard(ctx, cardX, cardY, cardW, cardH, 24, PALETTE.panel);
 
+  // Left Side: Album Art / Placeholder
+  const artX = cardX + 50; // 82
+  const artY = cardY + 70; // 140
+  const artSize = 360;
+
+  if (cachedArtworkImage && !isArtworkLoading) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(artX, artY, artSize, artSize, 16);
+    ctx.clip();
+    ctx.drawImage(cachedArtworkImage, artX, artY, artSize, artSize);
+    ctx.restore();
+  } else {
+    // Elegant dark gradient placeholder
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(artX, artY, artSize, artSize, 16);
+    ctx.clip();
+    const grad = ctx.createLinearGradient(artX, artY, artX, artY + artSize);
+    grad.addColorStop(0, '#1e222b');
+    grad.addColorStop(1, '#0e1014');
+    ctx.fillStyle = grad;
+    ctx.fill();
+    // Render central music symbol
+    drawIconMusic(ctx, artX + artSize / 2, artY + artSize / 2, 80, PALETTE.music);
+    ctx.restore();
+  }
+
+  // Right Side Details
+  const detailsX = 500;
+  const textTitle = (currentMedia && currentMedia.title) ? currentMedia.title : 'Unknown Song';
+  const textArtist = (currentMedia && currentMedia.artist) ? currentMedia.artist : 'Unknown Artist';
+  const textAlbum = (currentMedia && currentMedia.album) ? currentMedia.album : '';
+
   // Draw Music Provider Badge
   const player = (currentMedia && currentMedia.player) ? currentMedia.player : 'Spotify';
   ctx.fillStyle = PALETTE.track;
   ctx.beginPath();
-  ctx.roundRect(cardX + 40, cardY + 40, 200, 50, 25);
+  ctx.roundRect(detailsX, cardY + 40, 200, 46, 23);
   ctx.fill();
   
   // Draw small music vector icon inside the pill
-  drawIconMusic(ctx, cardX + 70, cardY + 65, 20, PALETTE.music);
+  drawIconMusic(ctx, detailsX + 30, cardY + 63, 18, PALETTE.music);
   
   ctx.fillStyle = PALETTE.music;
-  ctx.font = 'bold 20px Outfit, sans-serif';
+  ctx.font = 'bold 18px Outfit, sans-serif';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.fillText(player, cardX + 92, cardY + 65);
-
-  // Spinning disc animation frame
-  discRotation += 0.03;
-
-  const discCX = cardX + 220;
-  const discCY = cardY + 280;
-  const discRadius = 150;
-
-  // Outer Vinyl record edge
-  ctx.fillStyle = '#111';
-  ctx.beginPath();
-  ctx.arc(discCX, discCY, discRadius, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.lineWidth = 3;
-  ctx.strokeStyle = '#222';
-  ctx.stroke();
-
-  // Grooves on record
-  for (let r = 50; r < discRadius; r += 25) {
-    ctx.beginPath();
-    ctx.arc(discCX, discCY, r, 0, Math.PI * 2);
-    ctx.strokeStyle = '#1a1a1a';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-  }
-
-  // Record center sticker
-  ctx.fillStyle = PALETTE.music;
-  ctx.beginPath();
-  ctx.arc(discCX, discCY, 45, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Spinning cross marker to see disc rotate
-  ctx.save();
-  ctx.translate(discCX, discCY);
-  ctx.rotate(discRotation);
-  ctx.fillStyle = '#fff';
-  ctx.beginPath();
-  ctx.arc(25, 0, 5, 0, Math.PI * 2);
-  ctx.arc(-25, 0, 5, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
-
-  // Hole in center
-  ctx.fillStyle = PALETTE.panel;
-  ctx.beginPath();
-  ctx.arc(discCX, discCY, 10, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Song details text details
-  const detailsX = cardX + 420;
-  const textTitle = (currentMedia && currentMedia.title) ? currentMedia.title : 'Unknown Song';
-  const textArtist = (currentMedia && currentMedia.artist) ? currentMedia.artist : 'Unknown Artist';
-  const textAlbum = (currentMedia && currentMedia.album) ? currentMedia.album : '';
+  ctx.fillText(player, detailsX + 52, cardY + 63);
 
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
@@ -725,31 +771,32 @@ function renderMusic(ctx) {
   ctx.font = 'bold 44px Outfit, sans-serif';
   // Wrap text if too long
   let displayTitle = textTitle;
-  if (displayTitle.length > 20) displayTitle = displayTitle.substring(0, 18) + '...';
-  ctx.fillText(displayTitle, detailsX, cardY + 150);
+  if (displayTitle.length > 18) displayTitle = displayTitle.substring(0, 16) + '...';
+  ctx.fillText(displayTitle, detailsX, 200);
 
   // Artist
   ctx.fillStyle = PALETTE.music;
   ctx.font = '500 32px Outfit, sans-serif';
   let displayArtist = textArtist;
-  if (displayArtist.length > 25) displayArtist = displayArtist.substring(0, 22) + '...';
-  ctx.fillText(displayArtist, detailsX, cardY + 220);
+  if (displayArtist.length > 22) displayArtist = displayArtist.substring(0, 19) + '...';
+  ctx.fillText(displayArtist, detailsX, 270);
 
   // Album
   if (textAlbum) {
     ctx.fillStyle = PALETTE.muted;
     ctx.font = '300 24px Inter, sans-serif';
     let displayAlbum = textAlbum;
-    if (displayAlbum.length > 28) displayAlbum = displayAlbum.substring(0, 25) + '...';
-    ctx.fillText(displayAlbum, detailsX, cardY + 280);
+    if (displayAlbum.length > 25) displayAlbum = displayAlbum.substring(0, 22) + '...';
+    ctx.fillText(displayAlbum, detailsX, 330);
   }
 
   // Draw fake animated waveform to make the player look live!
   const waveX = detailsX;
-  const waveY = cardY + 360;
+  const waveY = 440;
   ctx.fillStyle = PALETTE.music;
-  for (let i = 0; i < 15; i++) {
-    const waveH = 15 + Math.sin((Date.now() / 150) + i) * 12 + Math.random() * 8;
+  const barCount = 18;
+  for (let i = 0; i < barCount; i++) {
+    const waveH = 15 + Math.sin((Date.now() / 150) + i) * 15 + Math.random() * 8;
     drawCard(ctx, waveX + (i * 20), waveY - (waveH / 2), 10, waveH, 4, PALETTE.music);
   }
 }
@@ -953,6 +1000,119 @@ function renderAgUsage(ctx) {
   });
 }
 
+// 7. Bangla.gov.bd Tools Stats Screen Renderer
+function renderBanglaGov(ctx) {
+  ctx.fillStyle = PALETTE.bg;
+  ctx.fillRect(0, 0, 960, 640);
+
+  // Header line
+  ctx.font = 'bold 36px Outfit, sans-serif';
+  ctx.fillStyle = PALETTE.ink;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText("bangla.gov.bd", 120, 50);
+
+  // Draw Logo if loaded
+  if (imgBanglaLogo && imgBanglaLogo.complete && imgBanglaLogo.naturalWidth !== 0) {
+    ctx.drawImage(imgBanglaLogo, 32, 15, 70, 70);
+  }
+
+  ctx.strokeStyle = PALETTE.track;
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(32, 100);
+  ctx.lineTo(928, 100);
+  ctx.stroke();
+
+  if (!currentBanglaGovData || !currentBanglaGovData.ok) {
+    ctx.font = '300 32px Inter, sans-serif';
+    ctx.fillStyle = PALETTE.muted;
+    ctx.textAlign = 'center';
+    ctx.fillText(currentBanglaGovData ? currentBanglaGovData.error : "Loading tools statistics...", 480, 340);
+    return;
+  }
+
+  const tools = currentBanglaGovData.tools || [];
+  if (tools.length === 0) {
+    ctx.font = '300 32px Inter, sans-serif';
+    ctx.fillStyle = PALETTE.muted;
+    ctx.textAlign = 'center';
+    ctx.fillText("No tool details available.", 480, 340);
+    return;
+  }
+
+  // Row layouts (3 products)
+  const cardW = 896;
+  const cardH = 140;
+  const cardX = 32;
+  const positionsY = [130, 290, 450];
+
+  tools.forEach((tool, idx) => {
+    if (idx >= 3) return; // Only fit 3 tools max
+    const cardY = positionsY[idx];
+
+    // Draw card panel
+    drawCard(ctx, cardX, cardY, cardW, cardH, 20, PALETTE.panel);
+
+    // Draw product icon
+    let imgNode = null;
+    if (tool.id === "02b6b237-2875-44a4-80ea-e720f8d7d488") imgNode = imgProdPurno;
+    else if (tool.id === "904bfa8b-5dd4-4f9b-b0dc-568d381717af") imgNode = imgProdSothik;
+    else if (tool.id === "602a728d-b718-47ee-906f-d153f05d99fc") imgNode = imgProdBanglaWord;
+
+    const iconX = cardX + 30;
+    const iconY = cardY + 30;
+    const iconSize = 80;
+
+    if (imgNode && imgNode.complete && imgNode.naturalWidth !== 0) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(iconX, iconY, iconSize, iconSize, 14);
+      ctx.clip();
+      ctx.drawImage(imgNode, iconX, iconY, iconSize, iconSize);
+      ctx.restore();
+    } else {
+      // Fallback placeholder
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(iconX, iconY, iconSize, iconSize, 14);
+      ctx.clip();
+      ctx.fillStyle = PALETTE.track;
+      ctx.fill();
+      drawIconMusic(ctx, iconX + iconSize/2, iconY + iconSize/2, 36, PALETTE.music);
+      ctx.restore();
+    }
+
+    // Title and Version/Type details
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+
+    // Title
+    ctx.fillStyle = PALETTE.ink;
+    ctx.font = 'bold 28px Outfit, sans-serif';
+    ctx.fillText(tool.title_en, cardX + 135, cardY + 45);
+
+    // Subtitle: Version & Type
+    ctx.fillStyle = PALETTE.muted;
+    ctx.font = '300 20px Inter, sans-serif';
+    ctx.fillText(`v${tool.version}  ·  ${tool.type_en}`, cardX + 135, cardY + 95);
+
+    // Downloads on Right
+    ctx.textAlign = 'right';
+
+    // Download number
+    ctx.fillStyle = '#00e5ff'; // Aqua accent
+    ctx.font = 'bold 36px Outfit, sans-serif';
+    const numStr = Number(tool.downloadCount).toLocaleString();
+    ctx.fillText(numStr, cardX + cardW - 30, cardY + 45);
+
+    // DOWNLOADS label
+    ctx.fillStyle = PALETTE.muted;
+    ctx.font = 'bold 14px Inter, sans-serif';
+    ctx.fillText("DOWNLOADS", cardX + cardW - 30, cardY + 95);
+  });
+}
+
 // --- MASTER MAIN LOOP ---
 
 function drawActiveScreen() {
@@ -966,6 +1126,8 @@ function drawActiveScreen() {
     renderClaudeUsage(offCtx);
   } else if (currentScreen === 'ag') {
     renderAgUsage(offCtx);
+  } else if (currentScreen === 'bangla') {
+    renderBanglaGov(offCtx);
   }
 
   // Draw 2x scaled offscreen to main LCD Canvas
