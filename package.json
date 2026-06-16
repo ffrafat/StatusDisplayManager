@@ -5,7 +5,8 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win"
+    "dist": "electron-builder --win",
+    "debug-media": "node debug-media.js"
   },
   "dependencies": {
     "systeminformation": "^5.22.7",
@@ -21,9 +22,18 @@
     "win": {
       "target": "portable"
     },
+    "extraResources": [
+      {
+        "from": "bin/backend.exe",
+        "to": "bin/backend.exe"
+      }
+    ],
     "files": [
       "**/*",
-      "!dist/**/*"
+      "!dist/**/*",
+      "!bin/**/*",
+      "!backend.py",
+      "!media_monitor.py"
     ]
   },
   "keywords": [

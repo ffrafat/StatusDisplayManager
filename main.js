@@ -1,24 +1,13 @@
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
-const { AX206Display } = require('./driver');
-const { getStats } = require('./stats');
-const { getActiveApp, getPlayingMedia } = require('./media');
-const { fetchClaudeUsage, fetchAgUsage, fetchBanglaGovData } = require('./providers');
+const fs = require('fs');
+const { spawn } = require('child_process');
 
 let mainWindow = null;
-let display = null;
-let statsInterval = null;
+let backendProcess = null;
 let displayConnected = false;
-let isWriting = false;
-
-// Caches for API pollers
-let claudeUsage = { ok: false, error: "Initial loading..." };
-let agUsage = { available: false, groups: [], error: "Initial loading..." };
-let banglaGovData = { ok: false, tools: [], error: "Initial loading..." };
-let lastClaudePoll = 0;
-let lastAgPoll = 0;
-let lastBanglaPoll = 0;
+let backendBusy = false;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -42,92 +31,102 @@ function createWindow() {
 
   mainWindow.on('closed', () => {
     mainWindow = null;
-    cleanup();
   });
 }
 
-function cleanup() {
-  stopStatsPolling();
-  if (display) {
-    try {
-      display.close();
-    } catch (e) {}
-    display = null;
+function startBackend() {
+  let binPath;
+  if (app.isPackaged) {
+    binPath = path.join(process.resourcesPath, 'bin', 'backend.exe');
+  } else {
+    // Development mode
+    const devBin = path.join(__dirname, 'bin', 'backend.exe');
+    if (fs.existsSync(devBin)) {
+      binPath = devBin;
+    } else {
+      binPath = null;
+    }
+  }
+
+  let cmd, args;
+  if (binPath) {
+    cmd = binPath;
+    args = [];
+  } else {
+    cmd = 'python';
+    args = [path.join(__dirname, 'backend.py')];
+  }
+
+  console.log(`Spawning backend process: ${cmd} ${args.join(' ')}`);
+  backendProcess = spawn(cmd, args);
+
+  // Auto-connect on startup (allow 1.5 seconds for renderer and backend to initialize)
+  setTimeout(() => {
+    sendBackendCommand({ cmd: "connect" });
+  }, 1500);
+
+  // Read stdout line by line
+  let stdoutBuffer = '';
+  backendProcess.stdout.on('data', (data) => {
+    stdoutBuffer += data.toString();
+    let lines = stdoutBuffer.split(/\r?\n/);
+    stdoutBuffer = lines.pop(); // Keep partial line
+    
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('{')) {
+        try {
+          const payload = JSON.parse(trimmed);
+          handleBackendMessage(payload);
+        } catch (e) {
+          console.error("Failed to parse backend stdout line:", e.message, "| line:", trimmed.slice(0, 100));
+        }
+      }
+    }
+  });
+
+  backendProcess.stderr.on('data', (data) => {
+    console.error("Backend Stderr:", data.toString().trim());
+  });
+
+  backendProcess.on('close', (code) => {
+    console.log(`Backend process exited with code ${code}`);
+    logToUI(`Backend process stopped (code ${code}).`, 'error');
+    backendProcess = null;
+    displayConnected = false;
+    backendBusy = false;
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
+      mainWindow.webContents.send('display-status', { connected: false });
+    }
+  });
+}
+
+function stopBackend() {
+  if (backendProcess) {
+    console.log("Terminating backend process...");
+    backendProcess.kill();
+    backendProcess = null;
   }
 }
 
-// Stats & Media background polling
-function startStatsPolling() {
-  if (statsInterval) return;
+function handleBackendMessage(payload) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
 
-  statsInterval = setInterval(async () => {
-    if (!mainWindow) return;
-
-    const now = Date.now();
-
-    // Poll Claude usage every 60 seconds (non-blocking)
-    if (now - lastClaudePoll > 60000) {
-      lastClaudePoll = now;
-      fetchClaudeUsage().then(data => {
-        claudeUsage = data;
-      }).catch(e => {
-        claudeUsage = { ok: false, error: e.message };
-      });
-    }
-
-    // Poll Antigravity status every 30 seconds (non-blocking)
-    if (now - lastAgPoll > 30000) {
-      lastAgPoll = now;
-      fetchAgUsage().then(data => {
-        agUsage = data;
-      }).catch(e => {
-        agUsage = { available: false, groups: [], error: e.message };
-      });
-    }
-
-    // Poll Bangla.gov.bd stats every 60 seconds (non-blocking)
-    if (now - lastBanglaPoll > 60000) {
-      lastBanglaPoll = now;
-      fetchBanglaGovData().then(data => {
-        banglaGovData = data;
-        if (!data.ok) {
-          logToUI(`Bangla API error: ${data.error}`, "error");
-        } else {
-          logToUI("Bangla.gov.bd API stats loaded successfully.", "success");
-        }
-      }).catch(e => {
-        banglaGovData = { ok: false, tools: [], error: e.message };
-        logToUI(`Bangla API crash: ${e.message}`, "error");
-      });
-    }
-
-    // Collect fast-changing OS telemetry in parallel
-    const [stats, activeApp, media] = await Promise.all([
-      getStats(),
-      getActiveApp(),
-      getPlayingMedia()
-    ]);
-
-    // Send combined data payload to renderer UI
-    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
-      mainWindow.webContents.send('tick-data', {
-        stats,
-        activeApp,
-        media,
-        claudeUsage,
-        agUsage,
-        banglaGovData,
-        displayConnected
-      });
-    }
-  }, 1000);
+  if (payload.type === 'telemetry') {
+    mainWindow.webContents.send('tick-data', payload.data);
+  } else if (payload.type === 'log') {
+    logToUI(payload.msg, payload.level || 'info');
+  } else if (payload.type === 'status') {
+    displayConnected = payload.connected;
+    mainWindow.webContents.send('display-status', { connected: displayConnected });
+  } else if (payload.type === 'draw_done') {
+    backendBusy = false;
+  }
 }
 
-
-function stopStatsPolling() {
-  if (statsInterval) {
-    clearInterval(statsInterval);
-    statsInterval = null;
+function sendBackendCommand(cmdObj) {
+  if (backendProcess && backendProcess.stdin && backendProcess.stdin.writable) {
+    backendProcess.stdin.write(JSON.stringify(cmdObj) + '\n');
   }
 }
 
@@ -138,98 +137,35 @@ function logToUI(msg, type = 'info') {
   }
 }
 
-// Display Connection Handling
-async function connectDisplay() {
-  if (displayConnected) return true;
-
-  try {
-    if (!display) {
-      display = new AX206Display();
-    }
-    display.open();
-    displayConnected = true;
-    logToUI("AX206 Screen connected successfully!", "success");
-    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
-      mainWindow.webContents.send('display-status', { connected: true });
-    }
-    return true;
-  } catch (e) {
-    displayConnected = false;
-    logToUI(`Connection failed: ${e.message}`, "error");
-    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
-      mainWindow.webContents.send('display-status', { connected: false });
-    }
-    return false;
-  }
-}
-
-function disconnectDisplay() {
-  if (display) {
-    try {
-      display.close();
-    } catch (e) {}
-    display = null;
-  }
-  displayConnected = false;
-  logToUI("Disconnected from display.", "info");
-  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
-    mainWindow.webContents.send('display-status', { connected: false });
-  }
-}
-
 // IPC Handlers
-
-ipcMain.on('connect-request', async (event) => {
-  const ok = await connectDisplay();
-  event.reply('connect-response', ok);
+ipcMain.on('connect-request', (event) => {
+  sendBackendCommand({ cmd: "connect" });
+  event.reply('connect-response', true);
 });
 
 ipcMain.on('disconnect-request', (event) => {
-  disconnectDisplay();
+  sendBackendCommand({ cmd: "disconnect" });
   event.reply('disconnect-response', true);
 });
 
-// Receives 480x320 RGBA image buffer from renderer and pushes to USB screen
-ipcMain.on('draw-frame', async (event, rgbaBuffer) => {
-  if (!displayConnected || !display) return;
-  if (isWriting) return; // Prevent overlapping USB writes
-
-  isWriting = true;
-  try {
-    await display.drawRGBA(rgbaBuffer);
-  } catch (e) {
-    logToUI(`USB blit error: ${e.message}`, "error");
-    displayConnected = false;
-    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
-      mainWindow.webContents.send('display-status', { connected: false });
-    }
-    
-    // Attempt recovery
-    logToUI("Attempting USB recovery...", "warning");
-    try {
-      await display.recover();
-      logToUI("Recovery completed. Trying to reconnect...", "info");
-      await connectDisplay();
-    } catch (recErr) {
-      logToUI(`Recovery failed: ${recErr.message}`, "error");
-    }
-  } finally {
-    isWriting = false;
-  }
+ipcMain.on('draw-frame', (event, rgbaBuffer) => {
+  if (!displayConnected) return;
+  if (backendBusy) return; // Skip frame if backend is busy rendering the previous one
+  backendBusy = true;
+  // Ensure we have a Node.js Buffer to support 'base64' encoding conversion
+  const buf = Buffer.isBuffer(rgbaBuffer) ? rgbaBuffer : Buffer.from(rgbaBuffer);
+  const base64Frame = buf.toString('base64');
+  sendBackendCommand({ cmd: "draw", frame: base64Frame });
 });
 
 // App Lifecycle
 app.whenReady().then(() => {
   createWindow();
-  startStatsPolling();
-
-  // Auto-connect on start
-  setTimeout(() => {
-    connectDisplay();
-  }, 1000);
+  startBackend();
 });
 
 app.on('window-all-closed', () => {
+  stopBackend();
   if (process.platform !== 'darwin') {
     app.quit();
   }
@@ -238,6 +174,6 @@ app.on('window-all-closed', () => {
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
-    startStatsPolling();
+    startBackend();
   }
 });

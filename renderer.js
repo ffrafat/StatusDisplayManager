@@ -7,6 +7,12 @@ const btnToggleConnect = document.getElementById('btn-toggle-connect');
 const rotationBadge = document.getElementById('rotation-badge');
 const consoleBox = document.getElementById('console-box');
 
+// Get LCD Navigation Elements
+const btnPrevScreen = document.getElementById('btn-prev-screen');
+const btnNextScreen = document.getElementById('btn-next-screen');
+const btnToggleRotation = document.getElementById('btn-toggle-rotation');
+const rotationPlayPauseIcon = document.getElementById('rotation-play-pause-icon');
+
 // Diagnostic Readouts
 const diagCpu = document.getElementById('diag-cpu');
 const diagRam = document.getElementById('diag-ram');
@@ -65,6 +71,7 @@ let isArtworkLoading = false;
 let screenList = ['clock', 'stats', 'music'];
 let currentScreen = 'clock';
 let screenStartTime = Date.now();
+let autoRotationPaused = false;
 
 // Load / Save Preferences
 function loadPreferences() {
@@ -112,23 +119,13 @@ function savePreferences() {
 
 // Update the list of screens to rotate
 function updateScreenList() {
-  const isPlaying = currentMedia && currentMedia.playing;
-  
-  // Lock on music screen if playing and music screen is enabled
-  if (chkMusic.checked && isPlaying) {
-    screenList = ['music'];
-    if (currentScreen !== 'music') {
-      currentScreen = 'music';
-      screenStartTime = Date.now();
-    }
-    return;
-  }
-
+  const isMediaActive = currentMedia && (currentMedia.playing || currentMedia.status === 'Playing' || currentMedia.status === 'Paused');
   const list = [];
+  
   if (chkClock.checked) list.push('clock');
   if (chkStats.checked) list.push('stats');
   
-  if (chkMusic.checked && isPlaying) {
+  if (chkMusic.checked && isMediaActive) {
     list.push('music');
   }
 
@@ -145,10 +142,16 @@ function updateScreenList() {
     list.push('bangla');
   }
 
+  const oldScreenList = [...screenList];
   screenList = list.length > 0 ? list : ['clock'];
   
-  // If current screen is no longer valid, switch immediately
-  if (!screenList.includes(currentScreen)) {
+  // Jump to music screen immediately if music just started playing
+  if (screenList.includes('music') && !oldScreenList.includes('music')) {
+    currentScreen = 'music';
+    screenStartTime = Date.now();
+  }
+  // Otherwise, if the current screen is no longer valid/active, switch away immediately
+  else if (!screenList.includes(currentScreen)) {
     currentScreen = screenList[0];
     screenStartTime = Date.now();
   }
@@ -163,6 +166,41 @@ btnToggleConnect.addEventListener('click', () => {
     appendLog("Connecting display...", "info");
     ipcRenderer.send('connect-request');
   }
+});
+
+// LCD Navigation Controls Event Listeners
+btnToggleRotation.addEventListener('click', () => {
+  autoRotationPaused = !autoRotationPaused;
+  if (autoRotationPaused) {
+    // Show Play icon (polygon) to resume rotation
+    rotationPlayPauseIcon.innerHTML = `<polygon points="5 3 19 12 5 21 5 3"/>`;
+    appendLog("Auto-rotation paused. Display locked to current screen.", "info");
+  } else {
+    // Show Pause icon (rects) to pause rotation
+    rotationPlayPauseIcon.innerHTML = `<rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/>`;
+    screenStartTime = Date.now();
+    appendLog("Auto-rotation resumed.", "info");
+  }
+});
+
+btnPrevScreen.addEventListener('click', () => {
+  if (screenList.length <= 1) return;
+  const idx = screenList.indexOf(currentScreen);
+  const nextIdx = idx === -1 ? 0 : (idx - 1 + screenList.length) % screenList.length;
+  currentScreen = screenList[nextIdx];
+  screenStartTime = Date.now();
+  drawActiveScreen();
+  appendLog(`Manually switched to: ${currentScreen.toUpperCase()}`, "info");
+});
+
+btnNextScreen.addEventListener('click', () => {
+  if (screenList.length <= 1) return;
+  const idx = screenList.indexOf(currentScreen);
+  const nextIdx = idx === -1 ? 0 : (idx + 1) % screenList.length;
+  currentScreen = screenList[nextIdx];
+  screenStartTime = Date.now();
+  drawActiveScreen();
+  appendLog(`Manually switched to: ${currentScreen.toUpperCase()}`, "info");
 });
 
 // Logs Console helper
@@ -225,7 +263,11 @@ ipcRenderer.on('tick-data', (event, data) => {
         cachedArtworkImage = null;
         isArtworkLoading = false;
       };
-      img.src = 'data:image/png;base64,' + currentMedia.thumbnail;
+      let mime = 'image/jpeg';
+      if (currentMedia.thumbnail.startsWith('iVBORw0G')) {
+        mime = 'image/png';
+      }
+      img.src = `data:${mime};base64,` + currentMedia.thumbnail;
     }
   } else {
     cachedArtworkBase64 = null;
@@ -291,7 +333,7 @@ const PALETTE = {
   ram: '#c084fc',
   disk: '#34d399',
   net: '#facc15',
-  music: '#f43f5e',
+  music: '#1DB954',
   activeApp: '#00e5ff'
 };
 
@@ -703,20 +745,14 @@ function renderStats(ctx) {
 
 // 3. Music Player Screen Renderer
 function renderMusic(ctx) {
-  ctx.fillStyle = PALETTE.bg;
+  // Solid subtle bottle green tint on black
+  ctx.fillStyle = '#05140b';
   ctx.fillRect(0, 0, 960, 640);
 
-  const cardW = 896;
-  const cardH = 500;
-  const cardX = 32;
-  const cardY = 70;
-
-  drawCard(ctx, cardX, cardY, cardW, cardH, 24, PALETTE.panel);
-
   // Left Side: Album Art / Placeholder
-  const artX = cardX + 50; // 82
-  const artY = cardY + 70; // 140
-  const artSize = 360;
+  const artX = 60;
+  const artY = 70;
+  const artSize = 500;
 
   if (cachedArtworkImage && !isArtworkLoading) {
     ctx.save();
@@ -726,42 +762,26 @@ function renderMusic(ctx) {
     ctx.drawImage(cachedArtworkImage, artX, artY, artSize, artSize);
     ctx.restore();
   } else {
-    // Elegant dark gradient placeholder
+    // Elegant dark-green gradient placeholder
     ctx.save();
     ctx.beginPath();
     ctx.roundRect(artX, artY, artSize, artSize, 16);
     ctx.clip();
-    const grad = ctx.createLinearGradient(artX, artY, artX, artY + artSize);
-    grad.addColorStop(0, '#1e222b');
-    grad.addColorStop(1, '#0e1014');
-    ctx.fillStyle = grad;
+    const placeholderGrad = ctx.createLinearGradient(artX, artY, artX, artY + artSize);
+    placeholderGrad.addColorStop(0, '#102e1b');
+    placeholderGrad.addColorStop(1, '#05140b');
+    ctx.fillStyle = placeholderGrad;
     ctx.fill();
     // Render central music symbol
-    drawIconMusic(ctx, artX + artSize / 2, artY + artSize / 2, 80, PALETTE.music);
+    drawIconMusic(ctx, artX + artSize / 2, artY + artSize / 2, 110, PALETTE.music);
     ctx.restore();
   }
 
   // Right Side Details
-  const detailsX = 500;
+  const detailsX = 600;
   const textTitle = (currentMedia && currentMedia.title) ? currentMedia.title : 'Unknown Song';
   const textArtist = (currentMedia && currentMedia.artist) ? currentMedia.artist : 'Unknown Artist';
   const textAlbum = (currentMedia && currentMedia.album) ? currentMedia.album : '';
-
-  // Draw Music Provider Badge
-  const player = (currentMedia && currentMedia.player) ? currentMedia.player : 'Spotify';
-  ctx.fillStyle = PALETTE.track;
-  ctx.beginPath();
-  ctx.roundRect(detailsX, cardY + 40, 200, 46, 23);
-  ctx.fill();
-  
-  // Draw small music vector icon inside the pill
-  drawIconMusic(ctx, detailsX + 30, cardY + 63, 18, PALETTE.music);
-  
-  ctx.fillStyle = PALETTE.music;
-  ctx.font = 'bold 18px Outfit, sans-serif';
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(player, detailsX + 52, cardY + 63);
 
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
@@ -778,26 +798,57 @@ function renderMusic(ctx) {
   ctx.fillStyle = PALETTE.music;
   ctx.font = '500 32px Outfit, sans-serif';
   let displayArtist = textArtist;
-  if (displayArtist.length > 22) displayArtist = displayArtist.substring(0, 19) + '...';
-  ctx.fillText(displayArtist, detailsX, 270);
+  if (displayArtist.length > 20) displayArtist = displayArtist.substring(0, 18) + '...';
+  ctx.fillText(displayArtist, detailsX, 275);
 
   // Album
   if (textAlbum) {
     ctx.fillStyle = PALETTE.muted;
     ctx.font = '300 24px Inter, sans-serif';
     let displayAlbum = textAlbum;
-    if (displayAlbum.length > 25) displayAlbum = displayAlbum.substring(0, 22) + '...';
-    ctx.fillText(displayAlbum, detailsX, 330);
+    if (displayAlbum.length > 22) displayAlbum = displayAlbum.substring(0, 20) + '...';
+    ctx.fillText(displayAlbum, detailsX, 345);
   }
 
-  // Draw fake animated waveform to make the player look live!
-  const waveX = detailsX;
-  const waveY = 440;
-  ctx.fillStyle = PALETTE.music;
-  const barCount = 18;
-  for (let i = 0; i < barCount; i++) {
-    const waveH = 15 + Math.sin((Date.now() / 150) + i) * 15 + Math.random() * 8;
-    drawCard(ctx, waveX + (i * 20), waveY - (waveH / 2), 10, waveH, 4, PALETTE.music);
+  // Draw status pill (PAUSED or PLAYING)
+  const isPaused = currentMedia && currentMedia.status === 'Paused';
+  const isPlaying = currentMedia && currentMedia.status === 'Playing';
+  
+  if (isPaused || isPlaying) {
+    const pillY = 410;
+    const pillW = 130;
+    const pillH = 40;
+    const pillR = 20;
+
+    ctx.save();
+    if (isPaused) {
+      ctx.strokeStyle = '#d07010';
+      ctx.fillStyle = 'rgba(208, 112, 16, 0.15)';
+      ctx.beginPath();
+      ctx.roundRect(detailsX, pillY, pillW, pillH, pillR);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#ffb300';
+      ctx.font = 'bold 18px Outfit, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('PAUSED', detailsX + pillW / 2, pillY + pillH / 2);
+    } else {
+      ctx.strokeStyle = '#1db954';
+      ctx.fillStyle = 'rgba(29, 185, 84, 0.15)';
+      ctx.beginPath();
+      ctx.roundRect(detailsX, pillY, pillW, pillH, pillR);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#1db954';
+      ctx.font = 'bold 18px Outfit, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('PLAYING', detailsX + pillW / 2, pillY + pillH / 2);
+    }
+    ctx.restore();
   }
 }
 
@@ -1008,9 +1059,9 @@ function renderBanglaGov(ctx) {
   // Header line
   ctx.font = 'bold 36px Outfit, sans-serif';
   ctx.fillStyle = PALETTE.ink;
-  ctx.textAlign = 'left';
+  ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText("bangla.gov.bd", 120, 50);
+  ctx.fillText("bangla.gov.bd", 480, 50);
 
   // Draw Logo if loaded
   if (imgBanglaLogo && imgBanglaLogo.complete && imgBanglaLogo.naturalWidth !== 0) {
@@ -1148,7 +1199,7 @@ function runManagerLoop() {
     const elapsed = (Date.now() - screenStartTime) / 1000.0;
     const limit = getDuration(currentScreen);
 
-    if (elapsed >= limit) {
+    if (!autoRotationPaused && elapsed >= limit) {
       // Advance to next screen
       const idx = screenList.indexOf(currentScreen);
       currentScreen = screenList[(idx + 1) % screenList.length];
@@ -1156,17 +1207,19 @@ function runManagerLoop() {
     }
 
     // Update rotation progress badge in UI
-    const nextIdx = (screenList.indexOf(currentScreen) + 1) % screenList.length;
-    const nextScreen = screenList[nextIdx];
-    const rem = Math.max(0, Math.ceil(getDuration(currentScreen) - elapsed));
-    
-    // Capitalize label
-    const formattedNext = nextScreen.toUpperCase().replace('-', ' ');
-    rotationBadge.textContent = `Active: ${currentScreen.toUpperCase()} (Next: ${formattedNext} in ${rem}s)`;
+    if (autoRotationPaused) {
+      rotationBadge.textContent = `Active: ${currentScreen.toUpperCase()} (Rotation Paused)`;
+    } else {
+      const nextIdx = (screenList.indexOf(currentScreen) + 1) % screenList.length;
+      const nextScreen = screenList[nextIdx];
+      const rem = Math.max(0, Math.ceil(getDuration(currentScreen) - elapsed));
+      const formattedNext = nextScreen.toUpperCase().replace('-', ' ');
+      rotationBadge.textContent = `Active: ${currentScreen.toUpperCase()} (Next: ${formattedNext} in ${rem}s)`;
+    }
 
     // 2. Draw active screen graphics
     drawActiveScreen();
-  }, 200); // 5 FPS is plenty to keep seconds bar / animated disc smooth
+  }, 1000); // 1 FPS is lightweight, extremely stable, and perfectly sufficient for 1-second ticks
 }
 
 // Start Up
