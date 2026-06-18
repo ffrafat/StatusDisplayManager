@@ -9,6 +9,8 @@ import ctypes
 from ctypes import wintypes
 from datetime import datetime
 import urllib.request
+import zipfile
+import shutil
 
 # Try importing external dependencies
 try:
@@ -735,6 +737,89 @@ def api_poller_loop():
             
         time.sleep(1)
 
+# --- PLUGINS SYSTEM CONTROLLERS ---
+PLUGINS_DIR = os.path.join(BASE_DIR, "plugins")
+if not os.path.exists(PLUGINS_DIR):
+    os.makedirs(PLUGINS_DIR)
+
+def get_installed_plugins():
+    plugins = []
+    if not os.path.exists(PLUGINS_DIR):
+        return plugins
+    for name in os.listdir(PLUGINS_DIR):
+        p_path = os.path.join(PLUGINS_DIR, name)
+        if os.path.isdir(p_path) and not name.startswith("_"):
+            manifest_path = os.path.join(p_path, "manifest.json")
+            if os.path.exists(manifest_path):
+                try:
+                    with open(manifest_path, "r", encoding="utf-8") as f:
+                        manifest = json.load(f)
+                    plugins.append({
+                        "id": name,
+                        "manifest": manifest
+                    })
+                except Exception as e:
+                    print(json.dumps({"type": "log", "msg": f"Failed to parse manifest for plugin {name}: {str(e)}", "level": "warning"}))
+    return plugins
+
+def install_plugin(zip_path):
+    if not os.path.exists(zip_path):
+        raise Exception(f"ZIP file not found at path: {zip_path}")
+    
+    # Create temporary folder
+    temp_dir = os.path.join(PLUGINS_DIR, "_temp_extract")
+    if os.path.exists(temp_dir):
+        shutil.rmtree(temp_dir)
+    os.makedirs(temp_dir)
+    
+    try:
+        # Extract zip
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(temp_dir)
+            
+        # Find manifest.json (might be nested in a single root folder in the zip)
+        manifest_file = None
+        search_dir = temp_dir
+        
+        # Check if there is a single subfolder containing manifest.json
+        items = [i for i in os.listdir(temp_dir) if not i.startswith("__MACOSX")]
+        if len(items) == 1 and os.path.isdir(os.path.join(temp_dir, items[0])):
+            search_dir = os.path.join(temp_dir, items[0])
+            
+        manifest_path = os.path.join(search_dir, "manifest.json")
+        if not os.path.exists(manifest_path):
+            raise Exception("No manifest.json found in the plugin ZIP.")
+            
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            manifest = json.load(f)
+            
+        plugin_id = manifest.get("id")
+        if not plugin_id:
+            raise Exception("Plugin manifest is missing the 'id' field.")
+            
+        # Clean destination if exists
+        dest_dir = os.path.join(PLUGINS_DIR, plugin_id)
+        if os.path.exists(dest_dir):
+            shutil.rmtree(dest_dir)
+            
+        # Move files
+        shutil.move(search_dir, dest_dir)
+        print(json.dumps({"type": "log", "msg": f"Plugin '{plugin_id}' installed successfully.", "level": "success"}))
+        print(json.dumps({"type": "plugin_installed", "id": plugin_id, "manifest": manifest}))
+    finally:
+        # Cleanup temp
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
+
+def uninstall_plugin(plugin_id):
+    dest_dir = os.path.join(PLUGINS_DIR, plugin_id)
+    if os.path.exists(dest_dir):
+        shutil.rmtree(dest_dir)
+        print(json.dumps({"type": "log", "msg": f"Plugin '{plugin_id}' uninstalled successfully.", "level": "success"}))
+        print(json.dumps({"type": "plugin_uninstalled", "id": plugin_id}))
+    else:
+        raise Exception(f"Plugin '{plugin_id}' not found.")
+
 # --- STDIN READER THREAD ---
 def stdin_listener():
     global display_connected
@@ -753,6 +838,18 @@ def stdin_listener():
                 AX206Driver.open_device()
             elif cmd == "disconnect":
                 AX206Driver.close_device()
+            elif cmd == "install_plugin":
+                try:
+                    zip_path = payload.get("zip_path")
+                    install_plugin(zip_path)
+                except Exception as e:
+                    print(json.dumps({"type": "log", "msg": f"Plugin install error: {str(e)}", "level": "error"}))
+            elif cmd == "uninstall_plugin":
+                try:
+                    plugin_id = payload.get("id")
+                    uninstall_plugin(plugin_id)
+                except Exception as e:
+                    print(json.dumps({"type": "log", "msg": f"Plugin uninstall error: {str(e)}", "level": "error"}))
             elif cmd == "draw":
                 try:
                     if display_connected:
@@ -792,6 +889,15 @@ def main():
     # Start stdin reader thread
     stdin_thread = threading.Thread(target=stdin_listener, daemon=True)
     stdin_thread.start()
+
+    # Scan and announce plugins list to Electron
+    try:
+        plugins = get_installed_plugins()
+        print(json.dumps({"type": "plugins_list", "plugins": plugins}))
+        sys.stdout.flush()
+    except Exception as e:
+        print(json.dumps({"type": "log", "msg": f"Plugin scan error: {str(e)}", "level": "error"}))
+        sys.stdout.flush()
 
     # Try to connect to display on startup
     AX206Driver.open_device()

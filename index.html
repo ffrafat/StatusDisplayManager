@@ -34,11 +34,15 @@
       <!-- Playlists & Screen settings -->
       <div class="card screen-settings">
         <h3>Screens Sequence</h3>
-        <p class="subtitle">Drag-and-drop support coming soon. Toggle active screens:</p>
+        <p class="subtitle">Select active panels and configure screen rotation durations:</p>
         
         <div class="screen-checkboxes">
+          <!-- Clock -->
           <div class="checkbox-group">
-            <input type="checkbox" id="chk-clock" checked>
+            <label class="switch-container">
+              <input type="checkbox" id="chk-clock" checked>
+              <span class="slider"></span>
+            </label>
             <label for="chk-clock">
               <span class="scr-icon">
                 <svg class="lucide-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -49,8 +53,12 @@
             </div>
           </div>
           
+          <!-- Stats -->
           <div class="checkbox-group">
-            <input type="checkbox" id="chk-stats" checked>
+            <label class="switch-container">
+              <input type="checkbox" id="chk-stats" checked>
+              <span class="slider"></span>
+            </label>
             <label for="chk-stats">
               <span class="scr-icon">
                 <svg class="lucide-icon" viewBox="0 0 24 24"><line x1="18" x2="18" y1="20" y2="10"/><line x1="12" x2="12" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="14"/></svg>
@@ -61,8 +69,12 @@
             </div>
           </div>
 
+          <!-- Music -->
           <div class="checkbox-group">
-            <input type="checkbox" id="chk-music" checked>
+            <label class="switch-container">
+              <input type="checkbox" id="chk-music" checked>
+              <span class="slider"></span>
+            </label>
             <label for="chk-music">
               <span class="scr-icon">
                 <svg class="lucide-icon" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
@@ -73,8 +85,12 @@
             </div>
           </div>
 
+          <!-- Claude -->
           <div class="checkbox-group">
-            <input type="checkbox" id="chk-claude" checked>
+            <label class="switch-container">
+              <input type="checkbox" id="chk-claude" checked>
+              <span class="slider"></span>
+            </label>
             <label for="chk-claude">
               <span class="scr-icon">
                 <svg class="lucide-icon" viewBox="0 0 24 24"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
@@ -85,8 +101,12 @@
             </div>
           </div>
 
+          <!-- Antigravity -->
           <div class="checkbox-group">
-            <input type="checkbox" id="chk-ag" checked>
+            <label class="switch-container">
+              <input type="checkbox" id="chk-ag" checked>
+              <span class="slider"></span>
+            </label>
             <label for="chk-ag">
               <span class="scr-icon">
                 <svg class="lucide-icon" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3"/><path d="M15 1v3"/><path d="M9 20v3"/><path d="M15 20v3"/><path d="M20 9h3"/><path d="M20 15h3"/><path d="M1 9h3"/><path d="M1 15h3"/></svg>
@@ -97,8 +117,12 @@
             </div>
           </div>
 
+          <!-- Bangla -->
           <div class="checkbox-group">
-            <input type="checkbox" id="chk-bangla" checked>
+            <label class="switch-container">
+              <input type="checkbox" id="chk-bangla" checked>
+              <span class="slider"></span>
+            </label>
             <label for="chk-bangla">
               <span class="scr-icon">
                 <svg class="lucide-icon" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
@@ -108,12 +132,26 @@
               <input type="number" id="dur-bangla" value="10" min="2">s
             </div>
           </div>
+
+          <!-- Dynamic Plugins Sequence List -->
+          <div id="plugins-list-divider" style="display: none; border-top: 1px solid rgba(255, 255, 255, 0.05); margin: 10px 0; padding-top: 10px;">
+            <h3 style="font-size: 10px; margin-bottom: 8px; color: var(--text-muted);">Installed Plugins</h3>
+          </div>
+          <div id="plugins-list" class="screen-checkboxes"></div>
         </div>
+      </div>
+
+      <!-- Plugins Manager Card -->
+      <div class="card plugins-manager-card">
+        <h3>Plugins Manager</h3>
+        <p class="subtitle">Import custom screen configurations bundled as ZIP archives.</p>
+        <button class="btn btn-import-plugin" id="btn-import-plugin">Import Plugin (.zip)</button>
+        <input type="file" id="plugin-file-input" accept=".zip" style="display: none;">
       </div>
       
       <!-- Footer Version Info -->
       <div class="sidebar-footer">
-        <span>v1.0.0 (Pure JS)</span>
+        <span>v1.1.0 (Refactored)</span>
       </div>
     </aside>
 
@@ -127,9 +165,18 @@
           <span class="badge" id="rotation-badge">Next: Stats (10s)</span>
         </div>
         
-        <!-- Physical LCD frame effect -->
+        <!-- Physical CNC bezel frame effect -->
         <div class="lcd-frame">
+          <span class="screw top-left"></span>
+          <span class="screw top-right"></span>
+          <span class="screw bottom-left"></span>
+          <span class="screw bottom-right"></span>
+          
           <div class="lcd-bezel">
+            <div class="bezel-header">
+              <span class="bezel-led" id="bezel-led"></span>
+              <span class="bezel-logo">SMARTCOOL</span>
+            </div>
             <canvas id="lcd-canvas" width="480" height="320"></canvas>
           </div>
         </div>
@@ -153,26 +200,49 @@
         <h2>Dashboard Telemetry</h2>
         <div class="diag-grid">
           
-          <div class="diag-card">
+          <!-- CPU circular gauge -->
+          <div class="diag-card circular-gauge-card">
+            <div class="gauge-ring-container">
+              <svg class="gauge-svg" viewBox="0 0 100 100">
+                <defs>
+                  <linearGradient id="gauge-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stop-color="#00f2fe" />
+                    <stop offset="100%" stop-color="#0084ff" />
+                  </linearGradient>
+                </defs>
+                <circle class="gauge-bg" cx="50" cy="50" r="40" />
+                <circle class="gauge-fill" id="gauge-cpu-fill" cx="50" cy="50" r="40" />
+              </svg>
+              <span class="gauge-value" id="diag-cpu">--%</span>
+            </div>
             <div class="diag-info">
               <span class="diag-label">CPU LOAD</span>
-              <span class="diag-value" id="diag-cpu">--%</span>
+              <span class="diag-value value-text" id="diag-cpu-freq">-- GHz</span>
             </div>
             <div class="diag-icon">
               <svg class="lucide-icon" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3"/><path d="M15 1v3"/><path d="M9 20v3"/><path d="M15 20v3"/><path d="M20 9h3"/><path d="M20 15h3"/><path d="M1 9h3"/><path d="M1 15h3"/></svg>
             </div>
           </div>
 
-          <div class="diag-card">
+          <!-- RAM circular gauge -->
+          <div class="diag-card circular-gauge-card">
+            <div class="gauge-ring-container">
+              <svg class="gauge-svg" viewBox="0 0 100 100">
+                <circle class="gauge-bg" cx="50" cy="50" r="40" />
+                <circle class="gauge-fill" id="gauge-ram-fill" cx="50" cy="50" r="40" />
+              </svg>
+              <span class="gauge-value" id="diag-ram">--%</span>
+            </div>
             <div class="diag-info">
               <span class="diag-label">RAM USED</span>
-              <span class="diag-value" id="diag-ram">--%</span>
+              <span class="diag-value value-text" id="diag-ram-gb">-- GB</span>
             </div>
             <div class="diag-icon">
               <svg class="lucide-icon" viewBox="0 0 24 24"><path d="M6 19v-3"/><path d="M10 19v-3"/><path d="M14 19v-3"/><path d="M18 19v-3"/><path d="M8 11V9"/><path d="M16 11V9"/><path d="M12 11V9"/><path d="M2 15h20"/><path d="M2 7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2Z"/></svg>
             </div>
           </div>
 
+          <!-- Active App -->
           <div class="diag-card">
             <div class="diag-info">
               <span class="diag-label">ACTIVE APP</span>
@@ -183,10 +253,17 @@
             </div>
           </div>
 
+          <!-- Music -->
           <div class="diag-card">
             <div class="diag-info">
               <span class="diag-label">NOW PLAYING</span>
               <span class="diag-value value-text" id="diag-music">Nothing playing</span>
+              <div class="eq-bars" id="eq-bars">
+                <span class="eq-bar bar1"></span>
+                <span class="eq-bar bar2"></span>
+                <span class="eq-bar bar3"></span>
+                <span class="eq-bar bar4"></span>
+              </div>
             </div>
             <div class="diag-icon">
               <svg class="lucide-icon" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
@@ -196,11 +273,25 @@
         </div>
       </section>
 
-      <!-- Console / Logs panel -->
+      <!-- macOS-style Terminal Console panel -->
       <section class="logs-section">
         <h2>Device Logs</h2>
-        <div class="console-box" id="console-box">
-          <div class="log-line system">App initialized. Welcome to AX206 Manager.</div>
+        <div class="terminal-window">
+          <div class="terminal-header">
+            <div class="terminal-dots">
+              <span class="terminal-dot close"></span>
+              <span class="terminal-dot minimize"></span>
+              <span class="terminal-dot maximize"></span>
+            </div>
+            <span class="terminal-title">ax206-manager.log</span>
+            <button class="btn-clear-logs" id="btn-clear-logs">Clear Logs</button>
+          </div>
+          <div class="console-box" id="console-box">
+            <div class="log-line system">
+              <span class="log-time">00:00:00</span>
+              <span class="log-content">App initialized. Welcome to AX206 Manager.</span>
+            </div>
+          </div>
         </div>
       </section>
 

@@ -121,6 +121,9 @@ function handleBackendMessage(payload) {
     mainWindow.webContents.send('display-status', { connected: displayConnected });
   } else if (payload.type === 'draw_done') {
     backendBusy = false;
+  } else {
+    // Relay all other event notifications from backend stdout to UI renderer
+    mainWindow.webContents.send('backend-event', payload);
   }
 }
 
@@ -138,6 +141,10 @@ function logToUI(msg, type = 'info') {
 }
 
 // IPC Handlers
+ipcMain.on('backend-command', (event, cmdObj) => {
+  sendBackendCommand(cmdObj);
+});
+
 ipcMain.on('connect-request', (event) => {
   sendBackendCommand({ cmd: "connect" });
   event.reply('connect-response', true);

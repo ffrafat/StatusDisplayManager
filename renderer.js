@@ -16,8 +16,15 @@ const rotationPlayPauseIcon = document.getElementById('rotation-play-pause-icon'
 // Diagnostic Readouts
 const diagCpu = document.getElementById('diag-cpu');
 const diagRam = document.getElementById('diag-ram');
+const diagCpuFreq = document.getElementById('diag-cpu-freq');
+const diagRamGb = document.getElementById('diag-ram-gb');
 const diagApp = document.getElementById('diag-app');
 const diagMusic = document.getElementById('diag-music');
+const eqBars = document.getElementById('eq-bars');
+const bezelLed = document.getElementById('bezel-led');
+const btnClearLogs = document.getElementById('btn-clear-logs');
+const gaugeCpuFill = document.getElementById('gauge-cpu-fill');
+const gaugeRamFill = document.getElementById('gauge-ram-fill');
 
 // Screen Settings Toggles
 const chkClock = document.getElementById('chk-clock');
@@ -142,6 +149,14 @@ function updateScreenList() {
     list.push('bangla');
   }
 
+  // Include dynamic plugin screens if enabled
+  Object.keys(loadedPlugins).forEach(id => {
+    const chk = document.getElementById(`chk-${id}`);
+    if (chk && chk.checked) {
+      list.push(id);
+    }
+  });
+
   const oldScreenList = [...screenList];
   screenList = list.length > 0 ? list : ['clock'];
   
@@ -207,8 +222,17 @@ btnNextScreen.addEventListener('click', () => {
 function appendLog(msg, type = 'info') {
   const line = document.createElement('div');
   line.classList.add('log-line', type);
-  const time = new Date().toLocaleTimeString();
-  line.textContent = `[${time}] ${msg}`;
+  
+  const timeSpan = document.createElement('span');
+  timeSpan.classList.add('log-time');
+  timeSpan.textContent = new Date().toLocaleTimeString();
+  
+  const contentSpan = document.createElement('span');
+  contentSpan.classList.add('log-content');
+  contentSpan.textContent = msg;
+  
+  line.appendChild(timeSpan);
+  line.appendChild(contentSpan);
   consoleBox.appendChild(line);
   consoleBox.scrollTop = consoleBox.scrollHeight;
 
@@ -216,6 +240,14 @@ function appendLog(msg, type = 'info') {
   while (consoleBox.children.length > 100) {
     consoleBox.removeChild(consoleBox.firstChild);
   }
+}
+
+// Clear Logs button event listener
+if (btnClearLogs) {
+  btnClearLogs.addEventListener('click', () => {
+    consoleBox.innerHTML = '';
+    appendLog("Console logs cleared.", "system");
+  });
 }
 
 // Listen for connection changes from main process
@@ -226,11 +258,13 @@ ipcRenderer.on('display-status', (event, status) => {
     statusText.textContent = 'Connected';
     btnToggleConnect.textContent = 'Disconnect';
     btnToggleConnect.classList.add('connected-btn');
+    if (bezelLed) bezelLed.classList.add('active');
   } else {
     statusDot.className = 'status-dot disconnected';
     statusText.textContent = 'Disconnected';
     btnToggleConnect.textContent = 'Connect Display';
     btnToggleConnect.classList.remove('connected-btn');
+    if (bezelLed) bezelLed.classList.remove('active');
   }
 });
 
@@ -280,17 +314,39 @@ ipcRenderer.on('tick-data', (event, data) => {
     statusText.textContent = 'Connected';
     btnToggleConnect.textContent = 'Disconnect';
     btnToggleConnect.classList.add('connected-btn');
+    if (bezelLed) bezelLed.classList.add('active');
   } else {
     statusDot.className = 'status-dot disconnected';
     statusText.textContent = 'Disconnected';
     btnToggleConnect.textContent = 'Connect Display';
     btnToggleConnect.classList.remove('connected-btn');
+    if (bezelLed) bezelLed.classList.remove('active');
   }
 
   // Update telemetry panel readouts
   if (currentStats) {
     diagCpu.textContent = `${Math.round(currentStats.cpu)}%`;
     diagRam.textContent = `${Math.round(currentStats.ram)}%`;
+
+    // Animate circular gauges
+    if (gaugeCpuFill) {
+      const offset = 251.2 - (251.2 * Math.min(100, Math.max(0, currentStats.cpu)) / 100);
+      gaugeCpuFill.style.strokeDashoffset = offset;
+    }
+    if (gaugeRamFill) {
+      const offset = 251.2 - (251.2 * Math.min(100, Math.max(0, currentStats.ram)) / 100);
+      gaugeRamFill.style.strokeDashoffset = offset;
+    }
+
+    // Update detailed labels
+    if (diagCpuFreq && currentStats.cpu_freq) {
+      diagCpuFreq.textContent = `${currentStats.cpu_freq.toFixed(2)} GHz`;
+    }
+    if (diagRamGb && currentStats.ram_used && currentStats.ram_total) {
+      const usedGb = (currentStats.ram_used / 1e9).toFixed(1);
+      const totalGb = (currentStats.ram_total / 1e9).toFixed(1);
+      diagRamGb.textContent = `${usedGb} / ${totalGb} GB`;
+    }
   }
   
   if (currentActiveApp) {
@@ -301,8 +357,10 @@ ipcRenderer.on('tick-data', (event, data) => {
 
   if (currentMedia && currentMedia.playing) {
     diagMusic.textContent = `${currentMedia.title} - ${currentMedia.artist}`;
+    if (eqBars) eqBars.classList.add('animating');
   } else {
     diagMusic.textContent = 'Nothing playing';
+    if (eqBars) eqBars.classList.remove('animating');
   }
 
   // Dynamic Image Reloader for Bangla Gov assets
@@ -319,6 +377,21 @@ ipcRenderer.on('tick-data', (event, data) => {
   checkAndReloadImage('img-prod-banglaword', 'product_banglaword.png');
 
   updateScreenList();
+
+  // Notify plugins of new telemetry
+  Object.keys(loadedPlugins).forEach(id => {
+    try {
+      const manifest = pluginManifests[id];
+      if (loadedPlugins[id].onTick && manifest) {
+        loadedPlugins[id].onTick({
+          telemetry: data,
+          settings: getPluginSettings(id, manifest)
+        });
+      }
+    } catch (e) {
+      console.error(`Error onTick for plugin ${id}:`, e);
+    }
+  });
 });
 
 // --- RENDERERS FOR ALL SCREENS (Drawn at 960x640) ---
@@ -338,6 +411,10 @@ const PALETTE = {
 };
 
 function getDuration(screen) {
+  if (loadedPlugins[screen]) {
+    const input = document.getElementById(`dur-${screen}`);
+    return input ? (parseInt(input.value) || 10) : 10;
+  }
   if (screen === 'clock') return parseInt(durClock.value) || 10;
   if (screen === 'stats') return parseInt(durStats.value) || 10;
   if (screen === 'music') return parseInt(durMusic.value) || 10;
@@ -1167,7 +1244,13 @@ function renderBanglaGov(ctx) {
 // --- MASTER MAIN LOOP ---
 
 function drawActiveScreen() {
-  if (currentScreen === 'clock') {
+  if (loadedPlugins[currentScreen]) {
+    try {
+      loadedPlugins[currentScreen].onDraw(offCtx, 960, 640);
+    } catch (e) {
+      appendLog(`Plugin '${currentScreen}' draw error: ${e.message}`, 'error');
+    }
+  } else if (currentScreen === 'clock') {
     renderClock(offCtx);
   } else if (currentScreen === 'stats') {
     renderStats(offCtx);
@@ -1220,6 +1303,295 @@ function runManagerLoop() {
     // 2. Draw active screen graphics
     drawActiveScreen();
   }, 1000); // 1 FPS is lightweight, extremely stable, and perfectly sufficient for 1-second ticks
+}
+
+// --- PLUGINS MANAGEMENT SYSTEM ---
+const loadedPlugins = {};
+const pluginManifests = {};
+
+window.registerDisplayPlugin = function(id, pluginInstance) {
+  loadedPlugins[id] = pluginInstance;
+  appendLog(`Plugin '${id}' registered successfully.`, 'success');
+  
+  try {
+    const manifest = pluginManifests[id];
+    if (pluginInstance.onLoad) {
+      pluginInstance.onLoad(require, (msg, level = 'info') => {
+        appendLog(`[${id}] ${msg}`, level);
+      });
+    }
+    
+    if (pluginInstance.onTick && manifest) {
+      pluginInstance.onTick({
+        telemetry: currentStats ? { stats: currentStats, media: currentMedia, activeApp: currentActiveApp } : null,
+        settings: getPluginSettings(id, manifest)
+      });
+    }
+  } catch (e) {
+    appendLog(`Error loading plugin '${id}': ${e.message}`, 'error');
+  }
+  
+  updateScreenList();
+};
+
+function getPluginSettings(id, manifest) {
+  const config = {};
+  const settings = manifest.settings || [];
+  settings.forEach(s => {
+    const inputId = `setting-${id}-${s.id}`;
+    const stored = localStorage.getItem(inputId);
+    if (s.type === 'checkbox') {
+      config[s.id] = stored !== null ? (stored === 'true') : (s.default || false);
+    } else if (s.type === 'number') {
+      config[s.id] = stored !== null ? (parseInt(stored) || 0) : (s.default || 0);
+    } else {
+      config[s.id] = stored !== null ? stored : (s.default || '');
+    }
+  });
+  return config;
+}
+
+function loadPlugin(id, manifest) {
+  appendLog(`Loading plugin '${id}'...`, 'info');
+  pluginManifests[id] = manifest;
+
+  // Render controls in sidebar
+  renderPluginControls(id, manifest);
+
+  // Inject CSS if present
+  const linkId = `style-plugin-${id}`;
+  let link = document.getElementById(linkId);
+  if (!link) {
+    link = document.createElement('link');
+    link.id = linkId;
+    link.rel = 'stylesheet';
+    link.href = `plugins/${id}/style.css`;
+    document.head.appendChild(link);
+  }
+
+  // Inject Script
+  const scriptId = `script-plugin-${id}`;
+  let script = document.getElementById(scriptId);
+  if (script) script.remove();
+  
+  script = document.createElement('script');
+  script.id = scriptId;
+  script.src = `plugins/${id}/${manifest.entry || 'renderer.js'}`;
+  document.body.appendChild(script);
+}
+
+function unloadPlugin(id) {
+  appendLog(`Unloading plugin '${id}'...`, 'info');
+  
+  if (loadedPlugins[id]) {
+    try {
+      if (loadedPlugins[id].onUnload) loadedPlugins[id].onUnload();
+    } catch (e) {
+      console.error(e);
+    }
+    delete loadedPlugins[id];
+  }
+
+  const link = document.getElementById(`style-plugin-${id}`);
+  if (link) link.remove();
+
+  const script = document.getElementById(`script-plugin-${id}`);
+  if (script) script.remove();
+
+  const card = document.getElementById(`plugin-card-${id}`);
+  if (card) card.remove();
+
+  const pluginsList = document.getElementById('plugins-list');
+  const divider = document.getElementById('plugins-list-divider');
+  if (pluginsList && divider && pluginsList.children.length === 0) {
+    divider.style.display = 'none';
+  }
+
+  updateScreenList();
+}
+
+function renderPluginControls(id, manifest) {
+  const pluginsList = document.getElementById('plugins-list');
+  const divider = document.getElementById('plugins-list-divider');
+  if (!pluginsList) return;
+
+  if (divider) divider.style.display = 'block';
+
+  const existingItem = document.getElementById(`plugin-card-${id}`);
+  if (existingItem) existingItem.remove();
+
+  const item = document.createElement('div');
+  item.id = `plugin-card-${id}`;
+  item.className = 'plugin-card-item';
+
+  // Header (Switch + Uninstall)
+  const header = document.createElement('div');
+  header.className = 'plugin-header';
+
+  const switchLabel = document.createElement('label');
+  switchLabel.className = 'switch-container';
+  const checkbox = document.createElement('input');
+  checkbox.type = 'checkbox';
+  checkbox.id = `chk-${id}`;
+  checkbox.checked = true;
+  checkbox.addEventListener('change', () => {
+    updateScreenList();
+  });
+  const slider = document.createElement('span');
+  slider.className = 'slider';
+  switchLabel.appendChild(checkbox);
+  switchLabel.appendChild(slider);
+
+  const infoBlock = document.createElement('div');
+  infoBlock.className = 'plugin-info-block';
+  infoBlock.appendChild(switchLabel);
+
+  const textBlock = document.createElement('div');
+  const title = document.createElement('div');
+  title.className = 'plugin-title-label';
+  title.textContent = manifest.name || id;
+  const author = document.createElement('div');
+  author.className = 'plugin-author-label';
+  author.textContent = manifest.author ? `by ${manifest.author}` : '';
+  textBlock.appendChild(title);
+  textBlock.appendChild(author);
+  infoBlock.appendChild(textBlock);
+
+  const btnUninstall = document.createElement('button');
+  btnUninstall.className = 'plugin-btn-uninstall';
+  btnUninstall.textContent = 'Uninstall';
+  btnUninstall.addEventListener('click', () => {
+    if (confirm(`Uninstall plugin '${manifest.name || id}'?`)) {
+      appendLog(`Uninstalling plugin '${id}'...`, 'info');
+      ipcRenderer.send('backend-command', { cmd: "uninstall_plugin", id: id });
+    }
+  });
+
+  header.appendChild(infoBlock);
+  header.appendChild(btnUninstall);
+  item.appendChild(header);
+
+  // Settings Panel
+  const settingsPanel = document.createElement('div');
+  settingsPanel.className = 'plugin-settings-panel';
+
+  // Rotation duration
+  const durField = document.createElement('div');
+  durField.className = 'plugin-setting-field checkbox-row';
+  const durLabel = document.createElement('label');
+  durLabel.textContent = 'Duration:';
+  const durInputBlock = document.createElement('div');
+  durInputBlock.className = 'dur-input';
+  const durInput = document.createElement('input');
+  durInput.type = 'number';
+  durInput.id = `dur-${id}`;
+  durInput.value = manifest.duration || 10;
+  durInput.min = 2;
+  durInput.addEventListener('change', () => {
+    updateScreenList();
+  });
+  durInputBlock.appendChild(durInput);
+  durInputBlock.appendChild(document.createTextNode('s'));
+  durField.appendChild(durLabel);
+  durField.appendChild(durInputBlock);
+  settingsPanel.appendChild(durField);
+
+  // Custom Settings
+  const settings = manifest.settings || [];
+  settings.forEach(setting => {
+    const field = document.createElement('div');
+    field.className = 'plugin-setting-field';
+
+    const label = document.createElement('label');
+    label.textContent = setting.label || setting.id;
+
+    let input;
+    if (setting.type === 'checkbox') {
+      field.className += ' checkbox-row';
+      input = document.createElement('input');
+      input.type = 'checkbox';
+      
+      const sContainer = document.createElement('label');
+      sContainer.className = 'switch-container';
+      const sSlider = document.createElement('span');
+      sSlider.className = 'slider';
+      input.id = `setting-${id}-${setting.id}`;
+      
+      const stored = localStorage.getItem(input.id);
+      input.checked = stored !== null ? (stored === 'true') : (setting.default || false);
+      
+      input.addEventListener('change', () => {
+        localStorage.setItem(input.id, input.checked);
+        if (loadedPlugins[id] && typeof loadedPlugins[id].onTick === 'function') {
+          loadedPlugins[id].onTick({
+            telemetry: currentStats ? { stats: currentStats, media: currentMedia, activeApp: currentActiveApp } : null,
+            settings: getPluginSettings(id, manifest)
+          });
+        }
+      });
+      sContainer.appendChild(input);
+      sContainer.appendChild(sSlider);
+      field.appendChild(label);
+      field.appendChild(sContainer);
+    } else {
+      input = document.createElement('input');
+      input.type = setting.type || 'text';
+      input.id = `setting-${id}-${setting.id}`;
+      
+      const stored = localStorage.getItem(input.id);
+      input.value = stored !== null ? stored : (setting.default || '');
+      
+      input.addEventListener('input', () => {
+        localStorage.setItem(input.id, input.value);
+        if (loadedPlugins[id] && typeof loadedPlugins[id].onTick === 'function') {
+          loadedPlugins[id].onTick({
+            telemetry: currentStats ? { stats: currentStats, media: currentMedia, activeApp: currentActiveApp } : null,
+            settings: getPluginSettings(id, manifest)
+          });
+        }
+      });
+      field.appendChild(label);
+      field.appendChild(input);
+    }
+  });
+
+  item.appendChild(settingsPanel);
+  pluginsList.appendChild(item);
+}
+
+// IPC Backend Event Handler
+ipcRenderer.on('backend-event', (event, payload) => {
+  if (payload.type === 'plugins_list') {
+    payload.plugins.forEach(p => {
+      loadPlugin(p.id, p.manifest);
+    });
+  } else if (payload.type === 'plugin_installed') {
+    loadPlugin(payload.id, payload.manifest);
+  } else if (payload.type === 'plugin_uninstalled') {
+    unloadPlugin(payload.id);
+  }
+});
+
+// Import triggers
+const btnImportPlugin = document.getElementById('btn-import-plugin');
+const pluginFileInput = document.getElementById('plugin-file-input');
+if (btnImportPlugin && pluginFileInput) {
+  btnImportPlugin.addEventListener('click', () => {
+    pluginFileInput.click();
+  });
+  pluginFileInput.addEventListener('change', (e) => {
+    if (pluginFileInput.files.length > 0) {
+      const file = pluginFileInput.files[0];
+      const zipPath = file.path;
+      if (zipPath && zipPath.endsWith('.zip')) {
+        appendLog(`Importing plugin ZIP: ${zipPath}...`, 'info');
+        ipcRenderer.send('backend-command', { cmd: "install_plugin", zip_path: zipPath });
+      } else {
+        appendLog("Please select a valid .zip file.", 'error');
+      }
+      pluginFileInput.value = '';
+    }
+  });
 }
 
 // Start Up
