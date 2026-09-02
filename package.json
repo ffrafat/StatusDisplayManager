@@ -5,6 +5,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "make-icon": "electron tools/make-icon.js",
     "dist": "electron-builder --win",
     "debug-media": "node debug-media.js"
   },
@@ -14,13 +15,37 @@
   },
   "devDependencies": {
     "electron": "^31.0.1",
-    "electron-builder": "^24.13.3"
+    "electron-builder": "^24.13.3",
+    "png2icons": "^2.0.1"
   },
   "build": {
     "appId": "com.ax206.displaymanager",
-    "productName": "AX206DisplayManager",
+    "productName": "AX206 Display Manager",
+    "copyright": "Copyright © 2025",
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
     "win": {
-      "target": "portable"
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "include": "build/installer.nsh",
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "AX206 Display Manager",
+      "runAfterFinish": true,
+      "artifactName": "AX206-Display-Manager-Setup-${version}.${ext}",
+      "uninstallDisplayName": "AX206 Display Manager"
     },
     "extraResources": [
       {
@@ -33,7 +58,12 @@
       "!dist/**/*",
       "!bin/**/*",
       "!backend.py",
-      "!media_monitor.py"
+      "!media_monitor.py",
+      "!backend.spec",
+      "!media_monitor.spec",
+      "!tools/**/*",
+      "!debug-media.js",
+      "!render_preview.html"
     ]
   },
   "keywords": [

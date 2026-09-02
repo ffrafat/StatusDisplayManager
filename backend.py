@@ -46,11 +46,29 @@ EP_IN = 0x81
 DIR_OUT = 0x00
 DIR_IN = 0x80
 
-# Determine base directory for file downloads
+# App directory (read-only when installed to Program Files) — used for bundled assets.
 if getattr(sys, 'frozen', False):
-    BASE_DIR = os.path.dirname(sys.executable)
+    APP_DIR = os.path.dirname(sys.executable)
 else:
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    APP_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Writable per-user data directory (plugins, downloaded images). Never write next
+# to the executable: an installed build lives in a read-only location.
+def _resolve_data_dir():
+    for a in sys.argv[1:]:
+        if a.startswith("--data-dir="):
+            return a.split("=", 1)[1]
+    base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    return os.path.join(base, "AX206 Display Manager")
+
+DATA_DIR = _resolve_data_dir()
+try:
+    os.makedirs(DATA_DIR, exist_ok=True)
+except Exception:
+    DATA_DIR = APP_DIR  # last resort; may be read-only but keeps the process alive
+
+# Kept for backwards compatibility with existing references (image downloads).
+BASE_DIR = DATA_DIR
 
 # Global states
 display_device = None
@@ -62,6 +80,7 @@ cached_stats = {}
 cached_active_app = None
 cached_media = None
 cached_claude_usage = {"ok": False, "error": "Loading..."}
+manual_claude_token = None  # access token pasted into the GUI (overrides file lookup)
 cached_ag_usage = {"available": False, "groups": [], "error": "Loading..."}
 cached_bangla_gov = {"ok": False, "tools": [], "error": "Loading..."}
 
@@ -467,31 +486,41 @@ def parse_reset_ts(val):
 
 def fetch_claude_usage_sync():
     global cached_claude_usage
-    # Locate token candidate paths
-    home = os.path.expanduser("~")
-    local_app_data = os.environ.get("LOCALAPPDATA", os.path.join(home, "AppData", "Local"))
-    candidates = [
-        os.path.join(home, ".claude", ".credentials.json"),
-        os.path.join(local_app_data, "Claude", ".credentials.json")
-    ]
-    
+
     token = None
-    for p in candidates:
-        try:
-            if os.path.exists(p):
-                with open(p, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    token = data.get("accessToken")
-                    if not token and "claudeAiOauth" in data:
-                        token = data["claudeAiOauth"].get("accessToken")
-                    if token:
-                        token = token.strip()
-                        break
-        except Exception:
-            pass
+
+    # 1. Token pasted into the GUI wins (works regardless of which Claude client
+    #    the user is signed in through).
+    if manual_claude_token:
+        token = manual_claude_token.strip()
+
+    # 2. Fall back to the plaintext credentials file (Linux / CLI / VS Code login).
+    if not token:
+        home = os.path.expanduser("~")
+        local_app_data = os.environ.get("LOCALAPPDATA", os.path.join(home, "AppData", "Local"))
+        candidates = [
+            os.path.join(home, ".claude", ".credentials.json"),
+            os.path.join(local_app_data, "Claude", ".credentials.json")
+        ]
+        for p in candidates:
+            try:
+                if os.path.exists(p):
+                    with open(p, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        token = data.get("accessToken")
+                        if not token and "claudeAiOauth" in data:
+                            token = data["claudeAiOauth"].get("accessToken")
+                        if token:
+                            token = token.strip()
+                            break
+            except Exception:
+                pass
 
     if not token:
-        cached_claude_usage = {"ok": False, "error": "No Claude credentials found"}
+        cached_claude_usage = {
+            "ok": False,
+            "error": "No Claude token. Paste one in Settings or run 'claude setup-token'."
+        }
         return
 
     payload = json.dumps({
@@ -738,9 +767,11 @@ def api_poller_loop():
         time.sleep(1)
 
 # --- PLUGINS SYSTEM CONTROLLERS ---
-PLUGINS_DIR = os.path.join(BASE_DIR, "plugins")
-if not os.path.exists(PLUGINS_DIR):
-    os.makedirs(PLUGINS_DIR)
+PLUGINS_DIR = os.path.join(DATA_DIR, "plugins")
+try:
+    os.makedirs(PLUGINS_DIR, exist_ok=True)
+except Exception as e:
+    print(json.dumps({"type": "log", "msg": f"Could not create plugins dir: {e}", "level": "warning"}))
 
 def get_installed_plugins():
     plugins = []
@@ -822,7 +853,7 @@ def uninstall_plugin(plugin_id):
 
 # --- STDIN READER THREAD ---
 def stdin_listener():
-    global display_connected
+    global display_connected, manual_claude_token
     while True:
         line = sys.stdin.readline()
         if not line:
@@ -838,6 +869,16 @@ def stdin_listener():
                 AX206Driver.open_device()
             elif cmd == "disconnect":
                 AX206Driver.close_device()
+            elif cmd == "set_claude_token":
+                tok = (payload.get("token") or "").strip()
+                manual_claude_token = tok or None
+                print(json.dumps({
+                    "type": "log",
+                    "msg": "Claude token updated from Settings." if manual_claude_token else "Claude token cleared.",
+                    "level": "info"
+                }))
+                # Refresh the Claude panel immediately instead of waiting for the poll.
+                threading.Thread(target=fetch_claude_usage_sync, daemon=True).start()
             elif cmd == "install_plugin":
                 try:
                     zip_path = payload.get("zip_path")

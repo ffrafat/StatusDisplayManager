@@ -1,0 +1,44 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#26364a"/>
+      <stop offset="0.55" stop-color="#141c28"/>
+      <stop offset="1" stop-color="#0b1119"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.16"/>
+      <stop offset="0.4" stop-color="#ffffff" stop-opacity="0.03"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="pulse" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#3ec6ff"/>
+      <stop offset="1" stop-color="#7ee0ff"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="13" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- rounded-square app tile -->
+  <rect x="40" y="40" width="944" height="944" rx="212" fill="url(#bg)"/>
+  <rect x="40" y="40" width="944" height="944" rx="212" fill="url(#sheen)"/>
+  <rect x="41.5" y="41.5" width="941" height="941" rx="210.5" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="3"/>
+
+  <!-- LCD screen bezel -->
+  <rect x="176" y="258" width="672" height="508" rx="70" fill="#0a0f16" stroke="#4cc2ff" stroke-opacity="0.30" stroke-width="10"/>
+
+  <!-- baseline ticks -->
+  <g stroke="#4cc2ff" stroke-opacity="0.18" stroke-width="10" stroke-linecap="round">
+    <line x1="238" y1="512" x2="292" y2="512"/>
+    <line x1="732" y1="512" x2="786" y2="512"/>
+  </g>
+
+  <!-- activity pulse -->
+  <polyline points="300,512 384,512 446,352 574,672 728,512 644,512"
+            fill="none" stroke="url(#pulse)" stroke-width="44"
+            stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
+</svg>

@@ -7,6 +7,74 @@ const btnToggleConnect = document.getElementById('btn-toggle-connect');
 const rotationBadge = document.getElementById('rotation-badge');
 const consoleBox = document.getElementById('console-box');
 
+// --- Custom Windows title bar controls (frameless window) ---
+const winMinBtn = document.getElementById('win-min');
+const winMaxBtn = document.getElementById('win-max');
+const winCloseBtn = document.getElementById('win-close');
+if (winMinBtn) winMinBtn.addEventListener('click', () => ipcRenderer.send('window-minimize'));
+if (winMaxBtn) winMaxBtn.addEventListener('click', () => ipcRenderer.send('window-maximize'));
+if (winCloseBtn) winCloseBtn.addEventListener('click', () => ipcRenderer.send('window-close'));
+ipcRenderer.on('window-maximized-state', (event, isMaximized) => {
+  document.body.classList.toggle('maximized', isMaximized);
+  if (winMaxBtn) {
+    // Swap the glyph: single square = maximize, layered squares = restore
+    winMaxBtn.innerHTML = isMaximized
+      ? '<svg viewBox="0 0 10 10"><rect x="0.5" y="2.5" width="7" height="7"/><path d="M2.5 2.5 V0.5 H9.5 V7.5 H7.5"/></svg>'
+      : '<svg viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9"/></svg>';
+  }
+});
+
+// --- "Start with Windows" toggle ---
+const chkAutostart = document.getElementById('chk-autostart');
+if (chkAutostart) {
+  ipcRenderer.invoke('get-autostart').then((enabled) => {
+    chkAutostart.checked = !!enabled;
+  });
+  chkAutostart.addEventListener('change', () => {
+    ipcRenderer.send('set-autostart', chkAutostart.checked);
+    appendLog(
+      chkAutostart.checked
+        ? 'Enabled launch on Windows sign-in.'
+        : 'Disabled launch on Windows sign-in.',
+      'info'
+    );
+  });
+}
+ipcRenderer.on('autostart-state', (event, enabled) => {
+  if (chkAutostart) chkAutostart.checked = !!enabled;
+});
+
+// --- Claude access token field ---
+const claudeTokenInput = document.getElementById('claude-token-input');
+const claudeTokenSave = document.getElementById('claude-token-save');
+const claudeTokenStatus = document.getElementById('claude-token-status');
+
+function refreshClaudeTokenStatus() {
+  if (!claudeTokenStatus) return;
+  ipcRenderer.invoke('get-claude-token-status').then(({ hasToken }) => {
+    if (hasToken) {
+      claudeTokenInput.placeholder = 'Token saved — paste a new one to replace';
+      claudeTokenStatus.textContent = 'Token saved. Claude usage refreshes within ~60s.';
+    } else {
+      claudeTokenInput.placeholder = 'Paste access token (sk-ant-oat01-…)';
+      claudeTokenStatus.textContent = 'No token saved.';
+    }
+  });
+}
+if (claudeTokenSave) {
+  claudeTokenSave.addEventListener('click', () => {
+    const t = (claudeTokenInput.value || '').trim();
+    ipcRenderer.send('set-claude-token', t);
+    claudeTokenInput.value = '';
+    appendLog(t ? 'Saved Claude access token.' : 'Cleared Claude access token.', 'info');
+    setTimeout(refreshClaudeTokenStatus, 250);
+  });
+  claudeTokenInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') claudeTokenSave.click();
+  });
+}
+refreshClaudeTokenStatus();
+
 // Get LCD Navigation Elements
 const btnPrevScreen = document.getElementById('btn-prev-screen');
 const btnNextScreen = document.getElementById('btn-next-screen');
@@ -136,7 +204,9 @@ function updateScreenList() {
     list.push('music');
   }
 
-  if (chkClaude.checked && currentClaudeUsage && currentClaudeUsage.ok) {
+  // Claude screen always shows when enabled in the UI. renderClaudeUsage()
+  // handles the loading / no-credentials / error states on its own.
+  if (chkClaude.checked) {
     list.push('claude');
   }
 
@@ -281,6 +351,16 @@ ipcRenderer.on('tick-data', (event, data) => {
   currentClaudeUsage = data.claudeUsage;
   currentAgUsage = data.agUsage;
   currentBanglaGovData = data.banglaGovData;
+
+  // Reflect the live Claude fetch result next to the token field
+  if (claudeTokenStatus && currentClaudeUsage) {
+    if (currentClaudeUsage.ok) {
+      claudeTokenStatus.textContent =
+        `Connected · session ${Math.round(currentClaudeUsage.session_pct)}% · weekly ${Math.round(currentClaudeUsage.weekly_pct)}%`;
+    } else if (currentClaudeUsage.error && currentClaudeUsage.error !== 'Loading...') {
+      claudeTokenStatus.textContent = currentClaudeUsage.error;
+    }
+  }
   displayConnected = data.displayConnected;
 
   // Handle album art loading and caching

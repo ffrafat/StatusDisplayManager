@@ -4,23 +4,37 @@
   <meta charset="UTF-8">
   <title>AX206 Display Manager</title>
   <link rel="stylesheet" href="style.css">
-  <!-- Google Fonts -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
-  <div class="app-container">
-    
+  <div class="app-shell">
+
+    <!-- Custom Windows title bar -->
+    <header class="title-bar">
+      <div class="title-bar__brand">
+        <svg class="lucide-icon app-glyph" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+        <span>AX206 Display Manager</span>
+      </div>
+      <div class="title-bar__controls">
+        <button class="caption-btn" id="win-min" title="Minimize" tabindex="-1">
+          <svg viewBox="0 0 10 10"><line x1="0" y1="5" x2="10" y2="5"/></svg>
+        </button>
+        <button class="caption-btn" id="win-max" title="Maximize" tabindex="-1">
+          <svg viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9"/></svg>
+        </button>
+        <button class="caption-btn caption-btn--close" id="win-close" title="Close" tabindex="-1">
+          <svg viewBox="0 0 10 10"><line x1="0" y1="0" x2="10" y2="10"/><line x1="10" y1="0" x2="0" y2="10"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="app-body">
+
     <!-- Sidebar Settings -->
     <aside class="sidebar">
-      <div class="brand">
-        <span class="brand-logo">
-          <svg class="lucide-icon brand-logo-icon" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-        </span>
-        <span class="brand-name">AX206 Control</span>
+      <div class="pane-title">
+        <span class="brand-name">Configuration</span>
       </div>
-      
+
       <!-- Connection Card -->
       <div class="card connection-card">
         <h3>Display Status</h3>
@@ -29,6 +43,36 @@
           <span class="status-text" id="status-text">Disconnected</span>
         </div>
         <button class="btn btn-connect" id="btn-toggle-connect">Connect Display</button>
+      </div>
+
+      <!-- Startup Card -->
+      <div class="card">
+        <h3>Startup</h3>
+        <div class="screen-checkboxes">
+          <div class="checkbox-group">
+            <label class="switch-container">
+              <input type="checkbox" id="chk-autostart">
+              <span class="slider"></span>
+            </label>
+            <label for="chk-autostart">
+              <span class="scr-icon">
+                <svg class="lucide-icon" viewBox="0 0 24 24"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/></svg>
+              </span> Start with Windows
+            </label>
+          </div>
+        </div>
+        <p class="subtitle">Launches to the notification area on sign-in and keeps the display running in the background.</p>
+      </div>
+
+      <!-- Claude Token Card -->
+      <div class="card">
+        <h3>Claude Usage</h3>
+        <p class="subtitle">Needed only for the Claude screen. Generate one with <code>claude setup-token</code>, or copy the <code>accessToken</code> from <code>~/.claude/.credentials.json</code>.</p>
+        <div class="token-field">
+          <input type="password" id="claude-token-input" placeholder="Paste access token (sk-ant-oat01-…)" autocomplete="off" autocapitalize="off" spellcheck="false">
+          <button class="btn btn-standard" id="claude-token-save">Save token</button>
+        </div>
+        <p class="subtitle" id="claude-token-status">No token saved.</p>
       </div>
 
       <!-- Playlists & Screen settings -->
@@ -297,7 +341,8 @@
 
     </main>
 
-  </div>
+    </div><!-- /.app-body -->
+  </div><!-- /.app-shell -->
 
   <!-- Hidden assets for canvas rendering -->
   <img id="img-claude-logo" src="claude-logo.png" style="display: none;">

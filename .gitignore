@@ -3,3 +3,11 @@ dist/
 .DS_Store
 *.log
 .gemini/
+
+# PyInstaller work dirs (keep only build/icon.*)
+build/backend/
+build/media_monitor/
+build/pyi-dist/
+build/pyi-work/
+*.spec.bak
+_ui_preview.html
