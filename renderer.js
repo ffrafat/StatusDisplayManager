@@ -505,6 +505,24 @@ function getDuration(screen) {
 }
 
 // Helpers
+// Truncates text to fit within maxWidth using the canvas's *current* font,
+// measuring actual pixel width instead of guessing by character count (long
+// media titles - e.g. from Chrome/YouTube - vary hugely in glyph width and
+// used to run past the edge of the panel).
+function fitText(ctx, text, maxWidth) {
+  if (!text) return '';
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  const ellipsis = '…';
+  if (ctx.measureText(ellipsis).width > maxWidth) return '';
+  let lo = 0, hi = text.length;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (ctx.measureText(text.slice(0, mid) + ellipsis).width <= maxWidth) lo = mid;
+    else hi = mid - 1;
+  }
+  return text.slice(0, lo) + ellipsis;
+}
+
 function drawCard(ctx, x, y, w, h, r, color) {
   ctx.fillStyle = color;
   ctx.beginPath();
@@ -943,28 +961,25 @@ function renderMusic(ctx) {
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
 
+  // Available width for the right-hand text column (canvas is 960 wide; leave
+  // a right margin so long titles never run off the edge of the LCD).
+  const detailsMaxWidth = 960 - detailsX - 40;
+
   // Title
   ctx.fillStyle = PALETTE.ink;
   ctx.font = 'bold 44px Outfit, sans-serif';
-  // Wrap text if too long
-  let displayTitle = textTitle;
-  if (displayTitle.length > 18) displayTitle = displayTitle.substring(0, 16) + '...';
-  ctx.fillText(displayTitle, detailsX, 200);
+  ctx.fillText(fitText(ctx, textTitle, detailsMaxWidth), detailsX, 200);
 
   // Artist
   ctx.fillStyle = PALETTE.music;
   ctx.font = '500 32px Outfit, sans-serif';
-  let displayArtist = textArtist;
-  if (displayArtist.length > 20) displayArtist = displayArtist.substring(0, 18) + '...';
-  ctx.fillText(displayArtist, detailsX, 275);
+  ctx.fillText(fitText(ctx, textArtist, detailsMaxWidth), detailsX, 275);
 
   // Album
   if (textAlbum) {
     ctx.fillStyle = PALETTE.muted;
     ctx.font = '300 24px Inter, sans-serif';
-    let displayAlbum = textAlbum;
-    if (displayAlbum.length > 22) displayAlbum = displayAlbum.substring(0, 20) + '...';
-    ctx.fillText(displayAlbum, detailsX, 345);
+    ctx.fillText(fitText(ctx, textAlbum, detailsMaxWidth), detailsX, 345);
   }
 
   // Draw status pill (PAUSED or PLAYING)
@@ -1068,7 +1083,10 @@ function renderClaudeUsage(ctx) {
   if (!currentClaudeUsage || !currentClaudeUsage.ok) {
     ctx.font = '300 32px Inter, sans-serif';
     ctx.fillStyle = CL_PALETTE.dim;
-    ctx.fillText(currentClaudeUsage ? currentClaudeUsage.error : "Loading credentials...", 480, 340);
+    const msg = currentClaudeUsage ? currentClaudeUsage.error : "Loading credentials...";
+    // API error messages can be long full sentences - fit them to the panel
+    // width (centered text otherwise overflows both edges of the LCD).
+    ctx.fillText(fitText(ctx, msg, 896), 480, 340);
     return;
   }
 
@@ -1153,7 +1171,8 @@ function renderAgUsage(ctx) {
   if (!currentAgUsage || !currentAgUsage.available) {
     ctx.font = '300 32px Inter, sans-serif';
     ctx.fillStyle = PALETTE.muted;
-    ctx.fillText(currentAgUsage ? currentAgUsage.error : "Loading IDE quota...", 480, 320);
+    const msg = currentAgUsage ? currentAgUsage.error : "Loading IDE quota...";
+    ctx.fillText(fitText(ctx, msg, 896), 480, 320);
     return;
   }
 
@@ -1236,7 +1255,8 @@ function renderBanglaGov(ctx) {
     ctx.font = '300 32px Inter, sans-serif';
     ctx.fillStyle = PALETTE.muted;
     ctx.textAlign = 'center';
-    ctx.fillText(currentBanglaGovData ? currentBanglaGovData.error : "Loading tools statistics...", 480, 340);
+    const msg = currentBanglaGovData ? currentBanglaGovData.error : "Loading tools statistics...";
+    ctx.fillText(fitText(ctx, msg, 896), 480, 340);
     return;
   }
 

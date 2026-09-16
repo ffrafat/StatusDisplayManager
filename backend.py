@@ -541,7 +541,29 @@ def fetch_claude_usage_sync():
             },
             data=payload
         )
-        
+
+        if status != 200:
+            # A non-200 response (expired/invalid token, rate limited, etc.) has no
+            # rate-limit headers. Treat it as a failure instead of silently reporting
+            # 0% usage as if everything were fine.
+            err_msg = f"HTTP {status}"
+            try:
+                err_body = json.loads(body.decode("utf-8"))
+                detail = err_body.get("error", {}).get("message")
+                if detail:
+                    err_msg = f"HTTP {status}: {detail}"
+            except Exception:
+                pass
+            cached_claude_usage = {
+                "ok": False,
+                "error": err_msg,
+                "session_pct": 0,
+                "weekly_pct": 0,
+                "session_reset_ts": 0,
+                "weekly_reset_ts": 0
+            }
+            return
+
         session_util = float(headers.get("anthropic-ratelimit-unified-5h-utilization", "0"))
         weekly_util = float(headers.get("anthropic-ratelimit-unified-7d-utilization", "0"))
         session_rst = headers.get("anthropic-ratelimit-unified-5h-reset", "")
