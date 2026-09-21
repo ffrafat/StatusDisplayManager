@@ -83,6 +83,8 @@ cached_claude_usage = {"ok": False, "error": "Loading..."}
 manual_claude_token = None  # access token pasted into the GUI (overrides file lookup)
 cached_ag_usage = {"available": False, "groups": [], "error": "Loading..."}
 cached_bangla_gov = {"ok": False, "tools": [], "error": "Loading..."}
+cached_weather = {"ok": False, "error": "Loading..."}
+cached_geo = None  # {"lat", "lon", "city"} - resolved once from IP, cached in memory
 
 # Helper to pack SCSI CBW
 def make_cbw(data_len, direction, cdb):
@@ -762,30 +764,116 @@ def fetch_bangla_gov_sync():
             "error": str(e)
         }
 
+# --- WEATHER (Open-Meteo, IP-geolocated) ---
+
+# WMO weather codes (used by Open-Meteo) -> a short label + our icon key.
+WEATHER_CODE_MAP = {
+    0: ("Clear sky", "sun"),
+    1: ("Mostly clear", "sun"),
+    2: ("Partly cloudy", "cloud-sun"),
+    3: ("Overcast", "cloud"),
+    45: ("Fog", "fog"), 48: ("Fog", "fog"),
+    51: ("Light drizzle", "rain"), 53: ("Drizzle", "rain"), 55: ("Dense drizzle", "rain"),
+    56: ("Freezing drizzle", "rain"), 57: ("Freezing drizzle", "rain"),
+    61: ("Light rain", "rain"), 63: ("Rain", "rain"), 65: ("Heavy rain", "rain"),
+    66: ("Freezing rain", "rain"), 67: ("Freezing rain", "rain"),
+    71: ("Light snow", "snow"), 73: ("Snow", "snow"), 75: ("Heavy snow", "snow"),
+    77: ("Snow grains", "snow"),
+    80: ("Rain showers", "rain"), 81: ("Rain showers", "rain"), 82: ("Violent showers", "rain"),
+    85: ("Snow showers", "snow"), 86: ("Snow showers", "snow"),
+    95: ("Thunderstorm", "storm"), 96: ("Thunderstorm", "storm"), 99: ("Thunderstorm", "storm"),
+}
+
+def fetch_geo_sync():
+    global cached_geo
+    try:
+        status, _, body = fetch_url("http://ip-api.com/json/", timeout=6)
+        if status != 200:
+            raise Exception(f"HTTP {status}")
+        data = json.loads(body.decode("utf-8"))
+        if data.get("status") != "success":
+            raise Exception(data.get("message") or "geolocation failed")
+        cached_geo = {
+            "lat": data.get("lat"),
+            "lon": data.get("lon"),
+            "city": data.get("city") or "",
+        }
+    except Exception:
+        cached_geo = None
+
+def fetch_weather_sync():
+    global cached_weather
+    if not cached_geo:
+        fetch_geo_sync()
+    if not cached_geo:
+        cached_weather = {"ok": False, "error": "Could not determine location"}
+        return
+
+    try:
+        url = (
+            "https://api.open-meteo.com/v1/forecast"
+            f"?latitude={cached_geo['lat']}&longitude={cached_geo['lon']}"
+            "&current=temperature_2m,apparent_temperature,relative_humidity_2m,is_day,weather_code,wind_speed_10m"
+            "&daily=temperature_2m_max,temperature_2m_min"
+            "&timezone=auto"
+        )
+        status, _, body = fetch_url(url, timeout=8)
+        if status != 200:
+            raise Exception(f"HTTP {status}")
+
+        data = json.loads(body.decode("utf-8"))
+        cur = data.get("current", {})
+        daily = data.get("daily", {})
+        code = cur.get("weather_code")
+        label, icon = WEATHER_CODE_MAP.get(code, ("Unknown", "cloud"))
+
+        cached_weather = {
+            "ok": True,
+            "error": None,
+            "city": cached_geo.get("city") or "",
+            "temp": cur.get("temperature_2m"),
+            "feels_like": cur.get("apparent_temperature"),
+            "humidity": cur.get("relative_humidity_2m"),
+            "wind": cur.get("wind_speed_10m"),
+            "is_day": bool(cur.get("is_day", 1)),
+            "label": label,
+            "icon": icon,
+            "temp_max": (daily.get("temperature_2m_max") or [None])[0],
+            "temp_min": (daily.get("temperature_2m_min") or [None])[0],
+        }
+    except Exception as e:
+        cached_weather = {"ok": False, "error": str(e)}
+
 # --- BACKGROUND API POLLER ---
 def api_poller_loop():
     last_claude_poll = 0
     last_ag_poll = 0
     last_bangla_poll = 0
-    
+    last_weather_poll = 0
+
     while True:
         now = time.time()
-        
+
         # Claude usage every 60s
         if now - last_claude_poll > 60:
             last_claude_poll = now
             fetch_claude_usage_sync()
-            
+
         # Antigravity usage every 30s
         if now - last_ag_poll > 30:
             last_ag_poll = now
             fetch_ag_usage_sync()
-            
+
         # Bangla Gov every 60s
         if now - last_bangla_poll > 60:
             last_bangla_poll = now
             fetch_bangla_gov_sync()
-            
+
+        # Weather every 15 minutes (IP geolocation is cached in-memory once resolved)
+        if now - last_weather_poll > 900:
+            last_weather_poll = now
+            fetch_weather_sync()
+
         time.sleep(1)
 
 # --- PLUGINS SYSTEM CONTROLLERS ---
@@ -982,6 +1070,7 @@ def main():
                     "claudeUsage": cached_claude_usage,
                     "agUsage": cached_ag_usage,
                     "banglaGovData": cached_bangla_gov,
+                    "weatherData": cached_weather,
                     "displayConnected": display_connected
                 }
             }

@@ -101,6 +101,8 @@ const chkMusic = document.getElementById('chk-music');
 const chkClaude = document.getElementById('chk-claude');
 const chkAg = document.getElementById('chk-ag');
 const chkBangla = document.getElementById('chk-bangla');
+const chkWeather = document.getElementById('chk-weather');
+const chkPet = document.getElementById('chk-pet');
 
 // Screen Duration Inputs
 const durClock = document.getElementById('dur-clock');
@@ -109,6 +111,8 @@ const durMusic = document.getElementById('dur-music');
 const durClaude = document.getElementById('dur-claude');
 const durAg = document.getElementById('dur-ag');
 const durBangla = document.getElementById('dur-bangla');
+const durWeather = document.getElementById('dur-weather');
+const durPet = document.getElementById('dur-pet');
 
 // Hidden Assets
 const imgClaudeLogo = document.getElementById('img-claude-logo');
@@ -136,6 +140,7 @@ let currentMedia = null;
 let currentClaudeUsage = null;
 let currentAgUsage = null;
 let currentBanglaGovData = null;
+let currentWeatherData = null;
 
 // Artwork cache
 let cachedArtworkImage = null;
@@ -156,6 +161,8 @@ function loadPreferences() {
   chkClaude.checked = localStorage.getItem('chk-claude') !== 'false';
   chkAg.checked = localStorage.getItem('chk-ag') !== 'false';
   chkBangla.checked = localStorage.getItem('chk-bangla') !== 'false';
+  chkWeather.checked = localStorage.getItem('chk-weather') !== 'false';
+  chkPet.checked = localStorage.getItem('chk-pet') !== 'false';
 
   durClock.value = localStorage.getItem('dur-clock') || '10';
   durStats.value = localStorage.getItem('dur-stats') || '10';
@@ -163,6 +170,8 @@ function loadPreferences() {
   durClaude.value = localStorage.getItem('dur-claude') || '10';
   durAg.value = localStorage.getItem('dur-ag') || '10';
   durBangla.value = localStorage.getItem('dur-bangla') || '10';
+  durWeather.value = localStorage.getItem('dur-weather') || '10';
+  durPet.value = localStorage.getItem('dur-pet') || '10';
 }
 
 function savePreferences() {
@@ -172,6 +181,8 @@ function savePreferences() {
   localStorage.setItem('chk-claude', chkClaude.checked);
   localStorage.setItem('chk-ag', chkAg.checked);
   localStorage.setItem('chk-bangla', chkBangla.checked);
+  localStorage.setItem('chk-weather', chkWeather.checked);
+  localStorage.setItem('chk-pet', chkPet.checked);
 
   localStorage.setItem('dur-clock', durClock.value);
   localStorage.setItem('dur-stats', durStats.value);
@@ -179,12 +190,14 @@ function savePreferences() {
   localStorage.setItem('dur-claude', durClaude.value);
   localStorage.setItem('dur-ag', durAg.value);
   localStorage.setItem('dur-bangla', durBangla.value);
+  localStorage.setItem('dur-weather', durWeather.value);
+  localStorage.setItem('dur-pet', durPet.value);
 }
 
 // Attach listeners to save on change
 [
-  chkClock, chkStats, chkMusic, chkClaude, chkAg, chkBangla,
-  durClock, durStats, durMusic, durClaude, durAg, durBangla
+  chkClock, chkStats, chkMusic, chkClaude, chkAg, chkBangla, chkWeather, chkPet,
+  durClock, durStats, durMusic, durClaude, durAg, durBangla, durWeather, durPet
 ].forEach(el => {
   el.addEventListener('change', () => {
     savePreferences();
@@ -217,6 +230,16 @@ function updateScreenList() {
 
   if (chkBangla.checked && currentBanglaGovData && currentBanglaGovData.ok) {
     list.push('bangla');
+  }
+
+  if (chkWeather.checked && currentWeatherData && currentWeatherData.ok) {
+    list.push('weather');
+  }
+
+  // Pixel Pet needs nothing but the stats we already poll every second, so -
+  // like clock/stats - it always shows when enabled.
+  if (chkPet.checked) {
+    list.push('pet');
   }
 
   // Include dynamic plugin screens if enabled
@@ -351,6 +374,7 @@ ipcRenderer.on('tick-data', (event, data) => {
   currentClaudeUsage = data.claudeUsage;
   currentAgUsage = data.agUsage;
   currentBanglaGovData = data.banglaGovData;
+  currentWeatherData = data.weatherData;
 
   // Reflect the live Claude fetch result next to the token field
   if (claudeTokenStatus && currentClaudeUsage) {
@@ -501,6 +525,8 @@ function getDuration(screen) {
   if (screen === 'claude') return parseInt(durClaude.value) || 10;
   if (screen === 'ag') return parseInt(durAg.value) || 10;
   if (screen === 'bangla') return parseInt(durBangla.value) || 10;
+  if (screen === 'weather') return parseInt(durWeather.value) || 10;
+  if (screen === 'pet') return parseInt(durPet.value) || 10;
   return 10;
 }
 
@@ -1341,6 +1367,449 @@ function renderBanglaGov(ctx) {
   });
 }
 
+// ================================================================
+// Weather Screen — animated sky scene (Open-Meteo, IP-geolocated)
+// ================================================================
+
+function drawIconThermo(ctx, cx, cy, sz, color) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(sz / 24, sz / 24);
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.roundRect(10 - 12, 3 - 12, 4, 12, 2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(12 - 12, 17 - 12, 3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawIconDroplet(ctx, cx, cy, sz, color) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(sz / 24, sz / 24);
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(0, -10);
+  ctx.quadraticCurveTo(8, 4, 0, 10);
+  ctx.quadraticCurveTo(-8, 4, 0, -10);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawIconWind(ctx, cx, cy, sz, color) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(sz / 24, sz / 24);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2.2;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(-10, -5); ctx.quadraticCurveTo(8, -9, 9, -3); ctx.quadraticCurveTo(9, 1, 4, 0);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(-10, 1); ctx.quadraticCurveTo(10, -3, 11, 3); ctx.quadraticCurveTo(11, 7, 5, 6);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(-10, 7); ctx.quadraticCurveTo(4, 4, 5, 9);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// Fluffy cloud made of overlapping ellipses (one path, nonzero fill = union).
+function drawFluffyCloud(ctx, cx, cy, scale, color) {
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.ellipse(cx - 38 * scale, cy + 6 * scale, 30 * scale, 22 * scale, 0, 0, Math.PI * 2);
+  ctx.ellipse(cx + 10 * scale, cy - 14 * scale, 40 * scale, 32 * scale, 0, 0, Math.PI * 2);
+  ctx.ellipse(cx + 46 * scale, cy + 8 * scale, 28 * scale, 20 * scale, 0, 0, Math.PI * 2);
+  ctx.ellipse(cx, cy + 16 * scale, 50 * scale, 18 * scale, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawSunIcon(ctx, cx, cy, size, t) {
+  const r = size * 0.32;
+  const glow = ctx.createRadialGradient(cx, cy, r * 0.2, cx, cy, r * 2.2);
+  glow.addColorStop(0, 'rgba(255,214,102,0.55)');
+  glow.addColorStop(1, 'rgba(255,214,102,0)');
+  ctx.fillStyle = glow;
+  ctx.beginPath(); ctx.arc(cx, cy, r * 2.2, 0, Math.PI * 2); ctx.fill();
+
+  ctx.strokeStyle = 'rgba(255,224,130,0.9)';
+  ctx.lineWidth = size * 0.035;
+  ctx.lineCap = 'round';
+  const rayLen = r * 0.55;
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2 + t * 0.15;
+    const x0 = cx + Math.cos(a) * (r * 1.15), y0 = cy + Math.sin(a) * (r * 1.15);
+    const x1 = cx + Math.cos(a) * (r * 1.15 + rayLen), y1 = cy + Math.sin(a) * (r * 1.15 + rayLen);
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+  }
+
+  const core = ctx.createRadialGradient(cx - r * 0.25, cy - r * 0.25, r * 0.1, cx, cy, r);
+  core.addColorStop(0, '#fff6d8');
+  core.addColorStop(1, '#ffb238');
+  ctx.fillStyle = core;
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+}
+
+function drawMoonIcon(ctx, cx, cy, size, t) {
+  const r = size * 0.3;
+  const glow = ctx.createRadialGradient(cx, cy, r * 0.3, cx, cy, r * 2);
+  glow.addColorStop(0, 'rgba(220,230,255,0.35)');
+  glow.addColorStop(1, 'rgba(220,230,255,0)');
+  ctx.fillStyle = glow;
+  ctx.beginPath(); ctx.arc(cx, cy, r * 2, 0, Math.PI * 2); ctx.fill();
+
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = '#eef2ff'; ctx.fill();
+  ctx.globalCompositeOperation = 'destination-out';
+  ctx.beginPath(); ctx.arc(cx + r * 0.45, cy - r * 0.25, r * 0.85, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+
+  for (let i = 0; i < 6; i++) {
+    const a = i * 137.5 * Math.PI / 180;
+    const dist = r * (1.8 + (i % 3) * 0.5);
+    const sx = cx + Math.cos(a) * dist, sy = cy + Math.sin(a) * dist * 0.6 - r * 0.5;
+    const alpha = 0.4 + 0.5 * Math.abs(Math.sin(t * 1.3 + i));
+    ctx.fillStyle = `rgba(255,255,255,${alpha.toFixed(2)})`;
+    ctx.beginPath(); ctx.arc(sx, sy, 2.2, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+function drawRainDrops(ctx, cx, cy, size, t, count = 7) {
+  ctx.strokeStyle = 'rgba(150,200,255,0.85)';
+  ctx.lineWidth = 3;
+  ctx.lineCap = 'round';
+  for (let i = 0; i < count; i++) {
+    const seed = (i * 97) % 53;
+    const x = cx - size * 0.5 + (seed / 53) * size;
+    const speed = 90 + (i % 3) * 20;
+    const y = cy - size * 0.1 + ((t * speed + i * 40) % (size * 0.7));
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - 4, y + 14); ctx.stroke();
+  }
+}
+
+function drawSnowflakes(ctx, cx, cy, size, t, count = 8) {
+  ctx.fillStyle = 'rgba(255,255,255,0.95)';
+  for (let i = 0; i < count; i++) {
+    const seed = (i * 61) % 47;
+    const baseX = cx - size * 0.5 + (seed / 47) * size;
+    const speed = 26 + (i % 3) * 10;
+    const y = cy - size * 0.1 + ((t * speed + i * 30) % (size * 0.7));
+    const sway = Math.sin(t * 1.5 + i) * 8;
+    ctx.beginPath(); ctx.arc(baseX + sway, y, 3, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+function drawLightningBolt(ctx, cx, cy, t) {
+  const flash = (Math.floor(t * 2) % 5) === 0;
+  ctx.fillStyle = flash ? '#fff27a' : 'rgba(255,224,110,0.55)';
+  ctx.beginPath();
+  ctx.moveTo(cx + 6, cy - 6);
+  ctx.lineTo(cx - 8, cy + 18);
+  ctx.lineTo(cx + 2, cy + 18);
+  ctx.lineTo(cx - 6, cy + 42);
+  ctx.lineTo(cx + 14, cy + 14);
+  ctx.lineTo(cx + 4, cy + 14);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawWeatherSky(ctx, isDay, icon) {
+  const stormy = icon === 'rain' || icon === 'storm';
+  const overcast = icon === 'cloud' || icon === 'fog';
+  let top, bottom;
+  if (isDay) {
+    if (stormy) { top = '#3d4f68'; bottom = '#63748c'; }
+    else if (overcast) { top = '#6c8199'; bottom = '#a9bccb'; }
+    else if (icon === 'snow') { top = '#7fa4c2'; bottom = '#d7e8f3'; }
+    else { top = '#2e8fe0'; bottom = '#8fd3ff'; }
+  } else {
+    if (stormy || overcast) { top = '#0c1018'; bottom = '#1e2434'; }
+    else { top = '#080c1e'; bottom = '#1b2a4d'; }
+  }
+  const grad = ctx.createLinearGradient(0, 0, 0, 640);
+  grad.addColorStop(0, top);
+  grad.addColorStop(1, bottom);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 960, 640);
+
+  if (!isDay) {
+    const t = Date.now() / 1000;
+    for (let i = 0; i < 40; i++) {
+      const sx = (i * 137.5) % 960;
+      const sy = (i * 71.3) % 420;
+      const alpha = 0.15 + 0.35 * Math.abs(Math.sin(t * 0.6 + i));
+      ctx.fillStyle = `rgba(255,255,255,${alpha.toFixed(2)})`;
+      ctx.beginPath(); ctx.arc(sx, sy, i % 3 === 0 ? 1.6 : 1, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+}
+
+function drawWeatherIcon(ctx, icon, cx, cy, size, isDay) {
+  const t = Date.now() / 1000;
+  const cloudColor = isDay ? 'rgba(255,255,255,0.92)' : 'rgba(200,210,230,0.85)';
+  switch (icon) {
+    case 'sun':
+      if (isDay) drawSunIcon(ctx, cx, cy, size, t); else drawMoonIcon(ctx, cx, cy, size, t);
+      break;
+    case 'cloud-sun':
+      if (isDay) drawSunIcon(ctx, cx - size * 0.22, cy - size * 0.18, size * 0.75, t);
+      else drawMoonIcon(ctx, cx - size * 0.22, cy - size * 0.18, size * 0.75, t);
+      drawFluffyCloud(ctx, cx + size * 0.08, cy + size * 0.12, size / 120, cloudColor);
+      break;
+    case 'fog':
+      drawFluffyCloud(ctx, cx, cy - size * 0.12, size / 130, cloudColor);
+      ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+      ctx.lineWidth = 6; ctx.lineCap = 'round';
+      for (let i = 0; i < 3; i++) {
+        const yy = cy + size * 0.2 + i * 16;
+        const off = Math.sin(t * 0.8 + i) * 10;
+        ctx.beginPath(); ctx.moveTo(cx - size * 0.32 + off, yy); ctx.lineTo(cx + size * 0.32 + off, yy); ctx.stroke();
+      }
+      break;
+    case 'rain':
+      drawFluffyCloud(ctx, cx, cy - size * 0.15, size / 110, cloudColor);
+      drawRainDrops(ctx, cx, cy + size * 0.1, size * 0.8, t);
+      break;
+    case 'snow':
+      drawFluffyCloud(ctx, cx, cy - size * 0.15, size / 110, cloudColor);
+      drawSnowflakes(ctx, cx, cy + size * 0.1, size * 0.8, t);
+      break;
+    case 'storm':
+      drawFluffyCloud(ctx, cx, cy - size * 0.2, size / 110, 'rgba(150,160,180,0.92)');
+      drawRainDrops(ctx, cx, cy + size * 0.05, size * 0.7, t, 5);
+      drawLightningBolt(ctx, cx - 10, cy - size * 0.05, t);
+      break;
+    case 'cloud':
+    default:
+      drawFluffyCloud(ctx, cx, cy, size / 110, cloudColor);
+  }
+}
+
+function renderWeather(ctx) {
+  const w = currentWeatherData;
+  const icon = w && w.icon ? w.icon : 'sun';
+  const isDay = !w || w.is_day !== false;
+  drawWeatherSky(ctx, isDay, icon);
+
+  if (!w || !w.ok) {
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.font = '300 30px Inter, sans-serif';
+    const msg = w ? w.error : 'Finding your location...';
+    ctx.fillText(fitText(ctx, msg, 760), 480, 320);
+    return;
+  }
+
+  drawWeatherIcon(ctx, icon, 250, 300, 260, isDay);
+
+  const tx = 560;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = 'rgba(255,255,255,0.75)';
+  ctx.font = '600 26px Outfit, sans-serif';
+  ctx.fillText(fitText(ctx, w.city || 'Your Location', 340), tx, 80);
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 150px Outfit, sans-serif';
+  ctx.fillText(`${Math.round(w.temp)}°`, tx, 235);
+
+  ctx.font = '400 30px Inter, sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.fillText(fitText(ctx, w.label, 340), tx, 280);
+
+  if (w.temp_max != null && w.temp_min != null) {
+    ctx.font = '500 24px Outfit, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.65)';
+    ctx.fillText(`H:${Math.round(w.temp_max)}°   L:${Math.round(w.temp_min)}°`, tx, 320);
+  }
+
+  // Bottom glass stat chips: feels-like / humidity / wind
+  const chips = [
+    { icon: drawIconThermo, value: `${Math.round(w.feels_like)}°`, label: 'Feels like' },
+    { icon: drawIconDroplet, value: `${Math.round(w.humidity)}%`, label: 'Humidity' },
+    { icon: drawIconWind, value: `${Math.round(w.wind)} km/h`, label: 'Wind' }
+  ];
+  const chipW = 270, chipH = 76, gap = 20;
+  const startX = 480 - (chipW * 3 + gap * 2) / 2;
+  const chipY = 540;
+  chips.forEach((c, i) => {
+    const x = startX + i * (chipW + gap);
+    ctx.fillStyle = 'rgba(255,255,255,0.14)';
+    ctx.beginPath(); ctx.roundRect(x, chipY, chipW, chipH, 18); ctx.fill();
+    c.icon(ctx, x + 40, chipY + chipH / 2, 26, '#ffffff');
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 24px Outfit, sans-serif';
+    ctx.fillText(c.value, x + 72, chipY + chipH / 2 - 10);
+    ctx.fillStyle = 'rgba(255,255,255,0.65)';
+    ctx.font = '300 15px Inter, sans-serif';
+    ctx.fillText(c.label, x + 72, chipY + chipH / 2 + 14);
+  });
+}
+
+// ================================================================
+// Pixel Pet Screen — a little creature whose mood reflects system load
+// ================================================================
+
+function shadeColor(hex, percent) {
+  const num = parseInt(hex.slice(1), 16);
+  let r = Math.max(0, Math.min(255, (num >> 16) + Math.round(2.55 * percent)));
+  let g = Math.max(0, Math.min(255, ((num >> 8) & 0xff) + Math.round(2.55 * percent)));
+  let b = Math.max(0, Math.min(255, (num & 0xff) + Math.round(2.55 * percent)));
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
+}
+
+// A friendly "slime" silhouette: rounded top, scalloped bottom.
+function drawPetBody(ctx, cx, cy, r) {
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, Math.PI, 0, false);
+  ctx.lineTo(cx + r, cy + r * 0.65);
+  const bumps = 4;
+  const bumpW = (2 * r) / bumps;
+  for (let i = 0; i < bumps; i++) {
+    const xStart = cx + r - i * bumpW;
+    const xMid = xStart - bumpW / 2;
+    const xEnd = xStart - bumpW;
+    const dip = (i % 2 === 0) ? r * 0.18 : -r * 0.02;
+    ctx.quadraticCurveTo(xMid, cy + r * 0.65 + dip, xEnd, cy + r * 0.65);
+  }
+  ctx.lineTo(cx - r, cy);
+  ctx.closePath();
+}
+
+function renderPixelPet(ctx) {
+  ctx.fillStyle = '#101425';
+  ctx.fillRect(0, 0, 960, 640);
+
+  const cpu = currentStats ? currentStats.cpu : 0;
+  const ram = currentStats ? currentStats.ram : 0;
+  const load = Math.max(cpu, ram);
+
+  let mood = 'happy', moodColor = '#34d399', caption = 'Byte is chillin’';
+  if (load > 80) { mood = 'stressed'; moodColor = '#f87171'; caption = 'Byte is overworked!'; }
+  else if (load > 50) { mood = 'neutral'; moodColor = '#60a5fa'; caption = 'Byte is focused'; }
+
+  const t = Date.now() / 1000;
+  const cx = 480;
+  const bounce = mood === 'stressed' ? Math.sin(t * 14) * 4 : Math.sin(t * 1.6) * 10;
+  const jitterX = mood === 'stressed' ? Math.sin(t * 30) * 3 : 0;
+  const cy = 300 + bounce;
+  const r = 130;
+
+  // Ambient glow behind the pet
+  const glow = ctx.createRadialGradient(cx, cy, r * 0.3, cx, cy, r * 2.2);
+  glow.addColorStop(0, moodColor + '33');
+  glow.addColorStop(1, moodColor + '00');
+  ctx.fillStyle = glow;
+  ctx.beginPath(); ctx.arc(cx, cy, r * 2.2, 0, Math.PI * 2); ctx.fill();
+
+  // Sparkles when happy
+  if (mood === 'happy') {
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2 + t * 0.5;
+      const dist = r * 1.5 + Math.sin(t * 2 + i) * 14;
+      const sx = cx + jitterX + Math.cos(a) * dist;
+      const sy = cy + Math.sin(a) * dist * 0.6;
+      const alpha = 0.3 + 0.4 * Math.abs(Math.sin(t * 2 + i * 1.3));
+      ctx.fillStyle = `rgba(255,255,255,${alpha.toFixed(2)})`;
+      ctx.beginPath(); ctx.arc(sx, sy, 2.4, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  // Body
+  const bodyGrad = ctx.createLinearGradient(cx, cy - r, cx, cy + r);
+  bodyGrad.addColorStop(0, moodColor);
+  bodyGrad.addColorStop(1, shadeColor(moodColor, -18));
+  ctx.fillStyle = bodyGrad;
+  drawPetBody(ctx, cx + jitterX, cy, r);
+  ctx.fill();
+
+  // Face
+  const blink = (Math.floor(t / 3) % 4 === 0) && ((t % 3) < 0.15);
+  const eyeY = cy - r * 0.12;
+  const eyeDX = r * 0.35;
+
+  ctx.fillStyle = '#0d1420';
+  if (mood === 'stressed') {
+    ctx.strokeStyle = '#0d1420'; ctx.lineWidth = 6; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(cx + jitterX - eyeDX - 10, eyeY - 8); ctx.lineTo(cx + jitterX - eyeDX + 10, eyeY + 6); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx + jitterX + eyeDX + 10, eyeY - 8); ctx.lineTo(cx + jitterX + eyeDX - 10, eyeY + 6); ctx.stroke();
+  } else if (blink) {
+    ctx.strokeStyle = '#0d1420'; ctx.lineWidth = 5; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(cx + jitterX - eyeDX - 9, eyeY); ctx.lineTo(cx + jitterX - eyeDX + 9, eyeY); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx + jitterX + eyeDX - 9, eyeY); ctx.lineTo(cx + jitterX + eyeDX + 9, eyeY); ctx.stroke();
+  } else {
+    ctx.beginPath(); ctx.arc(cx + jitterX - eyeDX, eyeY, 9, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + jitterX + eyeDX, eyeY, 9, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // Mouth
+  ctx.strokeStyle = '#0d1420';
+  ctx.lineWidth = 5;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  const mouthY = cy + r * 0.22;
+  if (mood === 'happy') {
+    ctx.arc(cx + jitterX, mouthY - 10, 22, 0.15 * Math.PI, 0.85 * Math.PI);
+  } else if (mood === 'stressed') {
+    ctx.arc(cx + jitterX, mouthY + 14, 16, 1.15 * Math.PI, 1.85 * Math.PI);
+  } else {
+    ctx.moveTo(cx + jitterX - 16, mouthY);
+    ctx.lineTo(cx + jitterX + 16, mouthY);
+  }
+  ctx.stroke();
+
+  // Sweat drop when stressed
+  if (mood === 'stressed') {
+    ctx.fillStyle = 'rgba(147,197,253,0.9)';
+    const dx = cx + jitterX + r * 0.62, dy = cy - r * 0.55;
+    ctx.beginPath();
+    ctx.moveTo(dx, dy - 12);
+    ctx.quadraticCurveTo(dx + 9, dy + 4, dx, dy + 14);
+    ctx.quadraticCurveTo(dx - 9, dy + 4, dx, dy - 12);
+    ctx.fill();
+  }
+
+  // Name + mood caption
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = 'rgba(255,255,255,0.4)';
+  ctx.font = '700 14px Outfit, sans-serif';
+  ctx.fillText('B Y T E', cx, cy - r - 34);
+
+  ctx.fillStyle = '#f0f4fc';
+  ctx.font = '600 30px Outfit, sans-serif';
+  ctx.fillText(caption, cx, cy + r + 60);
+
+  // Energy / Calm bars - inverse of CPU / RAM, a full bar means low load
+  const barW = 320, barH = 14, barGap = 46;
+  const barsY = 560;
+  const barsX = cx - barW / 2;
+  drawProgressBar(ctx, barsX, barsY, barW, barH, 7, 100 - cpu, PALETTE.track, moodColor);
+  drawProgressBar(ctx, barsX, barsY + barGap, barW, barH, 7, 100 - ram, PALETTE.track, moodColor);
+
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = PALETTE.muted;
+  ctx.font = '600 14px Inter, sans-serif';
+  ctx.fillText('ENERGY', barsX, barsY - 16);
+  ctx.fillText('CALM', barsX, barsY + barGap - 16);
+}
+
 // --- MASTER MAIN LOOP ---
 
 function drawActiveScreen() {
@@ -1362,6 +1831,10 @@ function drawActiveScreen() {
     renderAgUsage(offCtx);
   } else if (currentScreen === 'bangla') {
     renderBanglaGov(offCtx);
+  } else if (currentScreen === 'weather') {
+    renderWeather(offCtx);
+  } else if (currentScreen === 'pet') {
+    renderPixelPet(offCtx);
   }
 
   // Draw 2x scaled offscreen to main LCD Canvas
