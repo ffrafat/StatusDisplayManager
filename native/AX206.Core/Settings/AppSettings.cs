@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using AX206.Core.Data;
 
 namespace AX206.Core.Settings;
 
@@ -14,7 +15,14 @@ public sealed class RadarSettings
 {
     public double? Lat { get; set; }
     public double? Lon { get; set; }
-    public double RangeKm { get; set; } = 100;
+    private double _rangeKm = RadarConfig.MaxRangeKm;
+
+    /// <summary>Clamped on load too, so ranges saved before the 20 km limit come back as 20.</summary>
+    public double RangeKm
+    {
+        get => _rangeKm;
+        set => _rangeKm = double.IsNaN(value) ? RadarConfig.MaxRangeKm : Math.Clamp(value, RadarConfig.MinRangeKm, RadarConfig.MaxRangeKm);
+    }
     public string Source { get; set; } = "auto";
     public string Airport { get; set; } = "";
 }

@@ -56,7 +56,7 @@ public sealed class RadarProvider : PollingProvider<RadarData>
 
     public void SetConfig(RadarConfig config)
     {
-        config = config with { RangeKm = Math.Clamp(config.RangeKm, 5, 400) };
+        config = config with { RangeKm = Math.Clamp(config.RangeKm, RadarConfig.MinRangeKm, RadarConfig.MaxRangeKm) };
         lock (_lock)
         {
             bool moved = _config.Lat != config.Lat || _config.Lon != config.Lon || _config.RangeKm != config.RangeKm;

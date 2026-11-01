@@ -75,8 +75,12 @@ if (args.Length > 0 && args[0] == "render")
         "Heavy rain", "rain", 25, 21)), "mock-weather-night-rain");
     Save(new WeatherScreen(), Mock(live, weather: new WeatherData(true, null, "Dhaka", 27, 30, 70, 6, false,
         "Clear sky", "sun", 31, 24)), "mock-weather-night-clear");
+    foreach (var (icon, label) in new[] { ("cloud-sun", "Partly cloudy"), ("cloud", "Overcast"), ("fog", "Fog"), ("snow", "Light snow"), ("storm", "Thunderstorm") })
+        Save(new WeatherScreen(), Mock(live, weather: new WeatherData(true, null, "Dhaka", 18, 16, 80, 12, true,
+            label, icon, 20, 14)), $"mock-weather-{icon}");
     Save(new PetScreen(), Mock(live, stats: live.Stats! with { CpuPercent = 95, RamPercent = 88 }), "mock-pet-stressed");
-    Save(new RadarScreen(), Mock(live, radar: new RadarData(true, null, new RadarHome(23.79, 90.37, "Kafrul"), 50,
+    Save(new PetScreen(), Mock(live, stats: live.Stats! with { CpuPercent = 8, RamPercent = 30 }), "mock-pet-happy");
+    Save(new RadarScreen(), Mock(live, radar: new RadarData(true, null, new RadarHome(23.79, 90.37, "Kafrul"), 20,
         now - 20, "adsb.lol", 0, now - 1800, [], null)), "mock-radar-empty");
     return 0;
 }

@@ -100,7 +100,7 @@ public sealed partial class SourcesPage : UserControl
     {
         if (_loading) return;
         if (double.IsNaN(args.NewValue)) { sender.Value = args.OldValue; return; }
-        _services.UpdateRadar(r => r.RangeKm = Math.Clamp(args.NewValue, 10, 250));
+        _services.UpdateRadar(r => r.RangeKm = args.NewValue); // RadarSettings clamps to 2-20 km
     }
 
     private void Feed_SelectionChanged(object sender, SelectionChangedEventArgs e)

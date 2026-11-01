@@ -64,7 +64,7 @@ public sealed record RadarData(
     bool Ok,
     string? Error,
     RadarHome? Home = null,
-    double RangeKm = 100,
+    double RangeKm = RadarConfig.MaxRangeKm,
     double FetchedAt = 0,
     string Source = "",
     int InRange = 0,
@@ -76,6 +76,10 @@ public sealed record RadarConfig(
     bool Enabled = true,
     double? Lat = null,
     double? Lon = null,
-    double RangeKm = 100,
+    double RangeKm = RadarConfig.MaxRangeKm,
     string Source = "auto",
-    string Airport = "");
+    string Airport = "")
+{
+    /// <summary>Scope radius limits, in km. The scope is for traffic overhead, not regional.</summary>
+    public const double MinRangeKm = 2, MaxRangeKm = 20;
+}

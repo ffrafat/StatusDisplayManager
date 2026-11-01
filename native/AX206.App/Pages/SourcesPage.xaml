@@ -65,11 +65,11 @@
                     </controls:SettingsExpander.Items>
                 </controls:SettingsExpander>
 
-                <controls:SettingsCard Header="Range" Description="Radius of the scope, in kilometres.">
+                <controls:SettingsCard Header="Range" Description="Radius of the scope, in kilometres (2 to 20).">
                     <controls:SettingsCard.HeaderIcon>
                         <FontIcon Glyph="&#xE71E;" />
                     </controls:SettingsCard.HeaderIcon>
-                    <NumberBox x:Name="RangeBox" Width="120" Minimum="10" Maximum="250" SmallChange="10" LargeChange="50"
+                    <NumberBox x:Name="RangeBox" Width="120" Minimum="2" Maximum="20" SmallChange="1" LargeChange="5"
                                SpinButtonPlacementMode="Compact" ValueChanged="Range_ValueChanged" />
                 </controls:SettingsCard>
 
