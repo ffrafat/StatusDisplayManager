@@ -18,7 +18,7 @@
 
   <ItemGroup>
     <!-- Logos and product icons drawn on the LCD; copied to Assets\ of every app that references Core -->
-    <Content Include="..\..\claude-logo.png;..\..\antigravity.png;..\..\bangla.png;..\..\product_purno.png;..\..\product_sothik.png;..\..\product_banglaword.png"
+    <Content Include="Images\*.png"
              Link="Assets\%(Filename)%(Extension)"
              CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
