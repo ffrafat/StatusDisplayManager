@@ -11,3 +11,7 @@ build/pyi-dist/
 build/pyi-work/
 *.spec.bak
 _ui_preview.html
+
+# Native WinUI 3 app build output
+native/**/bin/
+native/**/obj/

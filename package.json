@@ -30,7 +30,9 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "build/icon.ico"
@@ -63,7 +65,8 @@
       "!media_monitor.spec",
       "!tools/**/*",
       "!debug-media.js",
-      "!render_preview.html"
+      "!render_preview.html",
+      "!native/**/*"
     ]
   },
   "keywords": [
