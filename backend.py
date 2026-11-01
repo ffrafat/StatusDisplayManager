@@ -2,6 +2,7 @@ import sys
 import os
 import time
 import json
+import math
 import base64
 import struct
 import threading
@@ -85,6 +86,10 @@ cached_ag_usage = {"available": False, "groups": [], "error": "Loading..."}
 cached_bangla_gov = {"ok": False, "tools": [], "error": "Loading..."}
 cached_weather = {"ok": False, "error": "Loading..."}
 cached_geo = None  # {"lat", "lon", "city"} - resolved once from IP, cached in memory
+cached_radar = {"ok": False, "error": "Loading..."}
+# Sent by the GUI over stdin (set_radar_config). lat/lon None = use cached_geo.
+radar_config = {"enabled": False, "lat": None, "lon": None, "range_km": 100, "source": "auto", "airport": ""}
+radar_config_lock = threading.Lock()
 
 # Helper to pack SCSI CBW
 def make_cbw(data_len, direction, cdb):
@@ -844,12 +849,250 @@ def fetch_weather_sync():
     except Exception as e:
         cached_weather = {"ok": False, "error": str(e)}
 
+# --- PLANE RADAR ---
+# Volunteer ADS-B networks, no API key. adsb.lol has no published rate limit
+# (polled every 10s); anonymous OpenSky gets 400 credits/day (1 per bbox query
+# under 25 sq deg), so its interval is paced from X-Rate-Limit-Remaining.
+RADAR_UA = {"User-Agent": "AX206-Display-Manager/1.0"}
+RADAR_ADSBLOL_INTERVAL = 10
+RADAR_OPENSKY_MIN_INTERVAL = 60
+RADAR_MAX_AGE = 300       # drop positions older than this (s)
+RADAR_MAX_AIRCRAFT = 25
+RADAR_FETCH_FACTOR = 1.5  # fetch beyond the ring so traffic just outside shows as rim dots
+
+radar_sources = {
+    "adsblol": {"aircraft": [], "fetched_at": 0, "next_poll": 0, "error": None, "backoff": False},
+    "opensky": {"aircraft": [], "fetched_at": 0, "next_poll": 0, "error": None, "backoff": False},
+}
+radar_fetch_running = False
+radar_last_seen_ts = 0  # last time any aircraft was inside the ring
+radar_airport = {"icao": "", "info": None, "retry_at": 0}  # resolved once per ICAO code
+
+class RadarBackoff(Exception):
+    def __init__(self, msg, wait):
+        super().__init__(msg)
+        self.wait = wait
+
+def _radar_home():
+    with radar_config_lock:
+        lat, lon = radar_config.get("lat"), radar_config.get("lon")
+    if lat is not None and lon is not None:
+        return {"lat": lat, "lon": lon, "label": "Manual location"}
+    if not cached_geo:
+        fetch_geo_sync()
+    if not cached_geo or cached_geo.get("lat") is None:
+        return None
+    return {"lat": cached_geo["lat"], "lon": cached_geo["lon"], "label": cached_geo.get("city") or "IP location"}
+
+def _fetch_adsblol(home, fetch_km):
+    nm = round(fetch_km / 1.852) + 1  # +1 covers the ring edge
+    url = f"https://api.adsb.lol/v2/lat/{home['lat']:.4f}/lon/{home['lon']:.4f}/dist/{nm}"
+    status, _, body = fetch_url(url, headers=RADAR_UA, timeout=5)
+    if status != 200:
+        raise Exception(f"adsb.lol HTTP {status}")
+    data = json.loads(body.decode("utf-8"))
+    now = time.time()
+    out = []
+    for ac in data.get("ac") or []:
+        if ac.get("lat") is None or ac.get("lon") is None:
+            continue
+        alt = ac.get("alt_baro")
+        on_ground = alt == "ground"
+        out.append({
+            "hex": (ac.get("hex") or "").lower(),
+            "callsign": (ac.get("flight") or "").strip(),
+            "lat": ac["lat"],
+            "lon": ac["lon"],
+            "alt_ft": 0 if on_ground else (alt if isinstance(alt, (int, float)) else None),
+            "on_ground": on_ground,
+            "gs_kt": ac.get("gs"),
+            "track": ac.get("track"),
+            # Local clock, so dead-reckoning in the GUI is immune to PC clock skew
+            "pos_ts": now - float(ac.get("seen_pos") or ac.get("seen") or 0),
+        })
+    return out, RADAR_ADSBLOL_INTERVAL
+
+def _opensky_interval(headers):
+    # Spread what is left of today's (UTC) credits over the rest of the day.
+    try:
+        remaining = int(headers.get("X-Rate-Limit-Remaining"))
+    except (TypeError, ValueError):
+        return 240
+    secs_left = 86400 - (int(time.time()) % 86400)
+    return min(3600, max(RADAR_OPENSKY_MIN_INTERVAL, secs_left / max(remaining, 1)))
+
+def _fetch_opensky(home, fetch_km):
+    d_lat = fetch_km / 111.0
+    d_lon = fetch_km / (111.0 * max(0.1, math.cos(math.radians(home["lat"]))))
+    url = (
+        "https://opensky-network.org/api/states/all"
+        f"?lamin={home['lat'] - d_lat:.4f}&lomin={home['lon'] - d_lon:.4f}"
+        f"&lamax={home['lat'] + d_lat:.4f}&lomax={home['lon'] + d_lon:.4f}"
+    )
+    status, headers, body = fetch_url(url, headers=RADAR_UA, timeout=8)
+    if status == 429:
+        try:
+            wait = int(headers.get("X-Rate-Limit-Retry-After-Seconds"))
+        except (TypeError, ValueError):
+            wait = 3600
+        raise RadarBackoff("OpenSky daily limit reached", wait)
+    if status != 200:
+        raise Exception(f"OpenSky HTTP {status}")
+    data = json.loads(body.decode("utf-8"))
+    now = time.time()
+    server_time = data.get("time") or now
+    out = []
+    for s in data.get("states") or []:
+        # [0] icao24 [1] callsign [3] time_position [5] lon [6] lat
+        # [7] baro_altitude (m) [8] on_ground [9] velocity (m/s) [10] true_track
+        if len(s) < 11 or s[5] is None or s[6] is None:
+            continue
+        alt_m = s[7]
+        vel = s[9]
+        out.append({
+            "hex": (s[0] or "").lower(),
+            "callsign": (s[1] or "").strip(),
+            "lat": s[6],
+            "lon": s[5],
+            "alt_ft": round(alt_m * 3.28084) if alt_m is not None else None,
+            "on_ground": bool(s[8]),
+            "gs_kt": round(vel * 1.943844, 1) if vel is not None else None,
+            "track": s[10],
+            "pos_ts": now - max(0, server_time - (s[3] or server_time)),
+        })
+    return out, _opensky_interval(headers)
+
+def _resolve_airport(icao):
+    # adsb.lol's routes database has a keyless airport lookup
+    if radar_airport["icao"] != icao:
+        radar_airport.update(icao=icao, info=None, retry_at=0)
+    if not icao or radar_airport["info"] or time.time() < radar_airport["retry_at"]:
+        return radar_airport["info"]
+    try:
+        status, _, body = fetch_url(f"https://api.adsb.lol/api/0/airport/{icao}", headers=RADAR_UA, timeout=5)
+        if status != 200:
+            raise Exception(f"HTTP {status}")
+        data = json.loads(body.decode("utf-8"))
+        radar_airport["info"] = {
+            "icao": icao,
+            "iata": data.get("iata") or "",
+            "name": data.get("name") or icao,
+            "lat": float(data["lat"]),
+            "lon": float(data["lon"]),
+        }
+    except Exception:
+        radar_airport["retry_at"] = time.time() + 600
+    return radar_airport["info"]
+
+RADAR_FETCHERS = {"adsblol": _fetch_adsblol, "opensky": _fetch_opensky}
+RADAR_SOURCE_NAMES = {"adsblol": "adsb.lol", "opensky": "OpenSky"}
+
+def fetch_radar_sync():
+    global cached_radar, radar_last_seen_ts
+    with radar_config_lock:
+        cfg = dict(radar_config)
+    range_km = max(5, min(400, float(cfg.get("range_km") or 100)))
+    source = cfg.get("source") or "auto"
+    active = ["adsblol", "opensky"] if source == "auto" else [source]
+    active = [s for s in active if s in RADAR_FETCHERS]
+
+    home = _radar_home()
+    if not home:
+        cached_radar = {"ok": False, "error": "Could not determine location"}
+        return
+
+    fetch_km = range_km * RADAR_FETCH_FACTOR
+    now = time.time()
+    for name in active:
+        src = radar_sources[name]
+        if now < src["next_poll"]:
+            continue
+        try:
+            aircraft, interval = RADAR_FETCHERS[name](home, fetch_km)
+            src.update(aircraft=aircraft, fetched_at=time.time(), error=None, backoff=False)
+            src["next_poll"] = time.time() + interval
+        except RadarBackoff as e:
+            src.update(error=str(e), backoff=True)
+            src["next_poll"] = time.time() + e.wait
+        except Exception as e:
+            # URLError wraps the useful part: "<urlopen error timed out>" -> "timed out"
+            src.update(error=str(getattr(e, "reason", e)), backoff=False)
+            src["next_poll"] = time.time() + (30 if name == "adsblol" else 120)
+
+    # Merge by ICAO hex, keeping the freshest position per aircraft
+    now = time.time()
+    merged = {}
+    for name in active:
+        for ac in radar_sources[name]["aircraft"]:
+            if ac["on_ground"] or now - ac["pos_ts"] > RADAR_MAX_AGE:
+                continue
+            key = ac["hex"] or f"{name}:{ac['callsign']}:{ac['lat']}"
+            if key not in merged or ac["pos_ts"] > merged[key]["pos_ts"]:
+                merged[key] = dict(ac, src=RADAR_SOURCE_NAMES[name])
+
+    cos_home = math.cos(math.radians(home["lat"]))
+    def place(obj):
+        d_lat = (obj["lat"] - home["lat"]) * 111.0
+        d_lon = (obj["lon"] - home["lon"]) * 111.0 * cos_home
+        obj["dist_km"] = round(math.hypot(d_lat, d_lon), 2)
+        obj["bearing"] = round((math.degrees(math.atan2(d_lon, d_lat)) + 360) % 360, 1)  # 0 = N, 90 = E
+        return obj
+
+    aircraft = [place(ac) for ac in merged.values()]
+    aircraft.sort(key=lambda a: a["dist_km"])
+    aircraft = aircraft[:RADAR_MAX_AIRCRAFT]
+
+    airport = _resolve_airport(cfg.get("airport") or "")
+    if airport:
+        airport = place(dict(airport))
+
+    in_range = sum(1 for a in aircraft if a["dist_km"] <= range_km)
+    if in_range:
+        radar_last_seen_ts = now
+
+    fetched = [radar_sources[n]["fetched_at"] for n in active if radar_sources[n]["fetched_at"]]
+    errors = [f"{RADAR_SOURCE_NAMES[n]}: {radar_sources[n]['error']}" for n in active if radar_sources[n]["error"]]
+    if not fetched:
+        cached_radar = {"ok": False, "error": "; ".join(errors) or "No data yet"}
+        return
+
+    cached_radar = {
+        "ok": True,
+        "error": "; ".join(errors) or None,  # a source failed; older data is still shown
+        "home": home,
+        "range_km": range_km,
+        "fetched_at": max(fetched),
+        "source": " + ".join(RADAR_SOURCE_NAMES[n] for n in active),
+        "in_range": in_range,
+        "last_seen_ts": radar_last_seen_ts or None,
+        "aircraft": aircraft,
+        "airport": airport,
+    }
+
+def _radar_worker():
+    global radar_fetch_running
+    try:
+        fetch_radar_sync()
+    except Exception as e:
+        print(json.dumps({"type": "log", "msg": f"Radar fetch error: {str(e)}", "level": "warning"}))
+    finally:
+        radar_fetch_running = False
+
+def start_radar_fetch():
+    # Own thread, so a slow feed never delays the other polls.
+    global radar_fetch_running
+    if radar_fetch_running:
+        return
+    radar_fetch_running = True
+    threading.Thread(target=_radar_worker, daemon=True).start()
+
 # --- BACKGROUND API POLLER ---
 def api_poller_loop():
     last_claude_poll = 0
     last_ag_poll = 0
     last_bangla_poll = 0
     last_weather_poll = 0
+    last_radar_poll = 0
 
     while True:
         now = time.time()
@@ -873,6 +1116,12 @@ def api_poller_loop():
         if now - last_weather_poll > 900:
             last_weather_poll = now
             fetch_weather_sync()
+
+        # Radar only while its screen is enabled; each feed keeps its own
+        # schedule inside fetch_radar_sync(), which runs on its own thread.
+        if radar_config["enabled"] and now - last_radar_poll >= RADAR_ADSBLOL_INTERVAL:
+            last_radar_poll = now
+            start_radar_fetch()
 
         time.sleep(1)
 
@@ -989,6 +1238,36 @@ def stdin_listener():
                 }))
                 # Refresh the Claude panel immediately instead of waiting for the poll.
                 threading.Thread(target=fetch_claude_usage_sync, daemon=True).start()
+            elif cmd == "set_radar_config":
+                def _num(v):
+                    try:
+                        return float(v) if v not in (None, "") else None
+                    except (TypeError, ValueError):
+                        return None
+                lat, lon = _num(payload.get("lat")), _num(payload.get("lon"))
+                if lat is None or lon is None or not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                    lat = lon = None
+                source = payload.get("source")
+                airport = "".join(c for c in str(payload.get("airport") or "").upper() if c.isalnum())[:4]
+                new_cfg = {
+                    "enabled": bool(payload.get("enabled")),
+                    "lat": lat,
+                    "lon": lon,
+                    "range_km": _num(payload.get("range_km")) or 100,
+                    "source": source if source in ("auto", "adsblol", "opensky") else "auto",
+                    "airport": airport,
+                }
+                with radar_config_lock:
+                    moved = any(radar_config[k] != new_cfg[k] for k in ("lat", "lon", "range_km"))
+                    radar_config.update(new_cfg)
+                # Refetch on the next poll, but never skip an OpenSky rate-limit backoff.
+                for src in radar_sources.values():
+                    if moved:
+                        src["aircraft"] = []
+                    if not src.get("backoff"):
+                        src["next_poll"] = 0
+                if new_cfg["enabled"]:
+                    start_radar_fetch()
             elif cmd == "install_plugin":
                 try:
                     zip_path = payload.get("zip_path")
@@ -1071,6 +1350,7 @@ def main():
                     "agUsage": cached_ag_usage,
                     "banglaGovData": cached_bangla_gov,
                     "weatherData": cached_weather,
+                    "radarData": cached_radar,
                     "displayConnected": display_connected
                 }
             }

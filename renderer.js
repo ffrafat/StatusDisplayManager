@@ -103,6 +103,7 @@ const chkAg = document.getElementById('chk-ag');
 const chkBangla = document.getElementById('chk-bangla');
 const chkWeather = document.getElementById('chk-weather');
 const chkPet = document.getElementById('chk-pet');
+const chkRadar = document.getElementById('chk-radar');
 
 // Screen Duration Inputs
 const durClock = document.getElementById('dur-clock');
@@ -113,6 +114,15 @@ const durAg = document.getElementById('dur-ag');
 const durBangla = document.getElementById('dur-bangla');
 const durWeather = document.getElementById('dur-weather');
 const durPet = document.getElementById('dur-pet');
+const durRadar = document.getElementById('dur-radar');
+
+// Plane Radar settings (sent to the backend, which does the fetching)
+const radarLat = document.getElementById('radar-lat');
+const radarLon = document.getElementById('radar-lon');
+const radarRange = document.getElementById('radar-range');
+const radarSource = document.getElementById('radar-source');
+const radarAirport = document.getElementById('radar-airport');
+const radarStatus = document.getElementById('radar-status');
 
 // Hidden Assets
 const imgClaudeLogo = document.getElementById('img-claude-logo');
@@ -141,6 +151,8 @@ let currentClaudeUsage = null;
 let currentAgUsage = null;
 let currentBanglaGovData = null;
 let currentWeatherData = null;
+let currentRadarData = null;
+let radarConfigSent = false;
 
 // Artwork cache
 let cachedArtworkImage = null;
@@ -163,6 +175,7 @@ function loadPreferences() {
   chkBangla.checked = localStorage.getItem('chk-bangla') !== 'false';
   chkWeather.checked = localStorage.getItem('chk-weather') !== 'false';
   chkPet.checked = localStorage.getItem('chk-pet') !== 'false';
+  chkRadar.checked = localStorage.getItem('chk-radar') !== 'false';
 
   durClock.value = localStorage.getItem('dur-clock') || '10';
   durStats.value = localStorage.getItem('dur-stats') || '10';
@@ -172,6 +185,13 @@ function loadPreferences() {
   durBangla.value = localStorage.getItem('dur-bangla') || '10';
   durWeather.value = localStorage.getItem('dur-weather') || '10';
   durPet.value = localStorage.getItem('dur-pet') || '10';
+  durRadar.value = localStorage.getItem('dur-radar') || '10';
+
+  radarLat.value = localStorage.getItem('radar-lat') || '';
+  radarLon.value = localStorage.getItem('radar-lon') || '';
+  radarRange.value = localStorage.getItem('radar-range') || '100';
+  radarSource.value = localStorage.getItem('radar-source') || 'auto';
+  radarAirport.value = localStorage.getItem('radar-airport') || '';
 }
 
 function savePreferences() {
@@ -183,6 +203,7 @@ function savePreferences() {
   localStorage.setItem('chk-bangla', chkBangla.checked);
   localStorage.setItem('chk-weather', chkWeather.checked);
   localStorage.setItem('chk-pet', chkPet.checked);
+  localStorage.setItem('chk-radar', chkRadar.checked);
 
   localStorage.setItem('dur-clock', durClock.value);
   localStorage.setItem('dur-stats', durStats.value);
@@ -192,16 +213,44 @@ function savePreferences() {
   localStorage.setItem('dur-bangla', durBangla.value);
   localStorage.setItem('dur-weather', durWeather.value);
   localStorage.setItem('dur-pet', durPet.value);
+  localStorage.setItem('dur-radar', durRadar.value);
+
+  localStorage.setItem('radar-lat', radarLat.value);
+  localStorage.setItem('radar-lon', radarLon.value);
+  localStorage.setItem('radar-range', radarRange.value);
+  localStorage.setItem('radar-source', radarSource.value);
+  localStorage.setItem('radar-airport', radarAirport.value.trim().toUpperCase());
+}
+
+// The backend only polls the flight feeds while the radar screen is enabled.
+function sendRadarConfig() {
+  radarConfigSent = true;
+  ipcRenderer.send('backend-command', {
+    cmd: 'set_radar_config',
+    enabled: chkRadar.checked,
+    lat: radarLat.value,
+    lon: radarLon.value,
+    range_km: Math.min(250, Math.max(10, parseFloat(radarRange.value) || 100)),
+    source: radarSource.value,
+    airport: radarAirport.value.trim().toUpperCase()
+  });
 }
 
 // Attach listeners to save on change
 [
-  chkClock, chkStats, chkMusic, chkClaude, chkAg, chkBangla, chkWeather, chkPet,
-  durClock, durStats, durMusic, durClaude, durAg, durBangla, durWeather, durPet
+  chkClock, chkStats, chkMusic, chkClaude, chkAg, chkBangla, chkWeather, chkPet, chkRadar,
+  durClock, durStats, durMusic, durClaude, durAg, durBangla, durWeather, durPet, durRadar
 ].forEach(el => {
   el.addEventListener('change', () => {
     savePreferences();
     updateScreenList();
+  });
+});
+
+[chkRadar, radarLat, radarLon, radarRange, radarSource, radarAirport].forEach(el => {
+  el.addEventListener('change', () => {
+    savePreferences();
+    sendRadarConfig();
   });
 });
 
@@ -234,6 +283,12 @@ function updateScreenList() {
 
   if (chkWeather.checked && currentWeatherData && currentWeatherData.ok) {
     list.push('weather');
+  }
+
+  // Radar stays in rotation when the sky is empty (coverage is thin in many
+  // regions), so its empty / loading states show; renderRadar() handles them.
+  if (chkRadar.checked && currentRadarData) {
+    list.push('radar');
   }
 
   // Pixel Pet needs nothing but the stats we already poll every second, so -
@@ -375,6 +430,23 @@ ipcRenderer.on('tick-data', (event, data) => {
   currentAgUsage = data.agUsage;
   currentBanglaGovData = data.banglaGovData;
   currentWeatherData = data.weatherData;
+  currentRadarData = data.radarData;
+
+  // First telemetry means the backend's stdin is up: hand it the radar settings.
+  if (!radarConfigSent) sendRadarConfig();
+  if (radarStatus) {
+    if (!chkRadar.checked) {
+      radarStatus.textContent = 'Radar screen is off; feeds are not polled.';
+    } else if (!currentRadarData) {
+      radarStatus.textContent = 'This backend build has no radar support.';
+    } else if (currentRadarData.ok) {
+      const n = currentRadarData.in_range || 0;
+      radarStatus.textContent =
+        `${n} aircraft within ${Math.round(currentRadarData.range_km)} km · ${currentRadarData.source} · ${currentRadarData.home.label}`;
+    } else {
+      radarStatus.textContent = currentRadarData.error;
+    }
+  }
 
   // Reflect the live Claude fetch result next to the token field
   if (claudeTokenStatus && currentClaudeUsage) {
@@ -527,6 +599,7 @@ function getDuration(screen) {
   if (screen === 'bangla') return parseInt(durBangla.value) || 10;
   if (screen === 'weather') return parseInt(durWeather.value) || 10;
   if (screen === 'pet') return parseInt(durPet.value) || 10;
+  if (screen === 'radar') return parseInt(durRadar.value) || 10;
   return 10;
 }
 
@@ -1810,6 +1883,395 @@ function renderPixelPet(ctx) {
   ctx.fillText('CALM', barsX, barsY + barGap - 16);
 }
 
+// ================================================================
+// Plane Radar Screen — nearby aircraft from adsb.lol / OpenSky (backend.py)
+// ================================================================
+
+const RADAR_MAX_DR = 240; // seconds of dead-reckoning before a plane freezes
+const PLANE_PATH = new Path2D('M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z');
+
+// Colour by altitude band so the scope and the list read the same way
+function radarAltColor(ac) {
+  if (ac.alt_ft == null) return PALETTE.activeApp;
+  if (ac.alt_ft < 10000) return PALETTE.net;
+  if (ac.alt_ft < 25000) return PALETTE.cpu;
+  return PALETTE.ram;
+}
+
+function fmtRadarAlt(ac) {
+  if (ac.alt_ft == null) return '';
+  if (ac.alt_ft >= 10000) return `FL${Math.round(ac.alt_ft / 100)}`;
+  return `${(Math.round(ac.alt_ft / 100) * 100).toLocaleString()} ft`;
+}
+
+function compassPoint(deg) {
+  return ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(deg / 45) % 8];
+}
+
+function fmtAgo(sec) {
+  if (sec < 60) return `${Math.max(0, Math.round(sec))}s ago`;
+  if (sec < 3600) return `${Math.round(sec / 60)} min ago`;
+  return `${Math.round(sec / 3600)} h ago`;
+}
+
+// Greedy word wrap with the canvas's current font; the last line is ellipsised.
+function wrapLines(ctx, text, maxWidth, maxLines) {
+  const words = String(text || '').split(/\s+/);
+  const lines = [];
+  let line = '';
+  for (let i = 0; i < words.length; i++) {
+    const test = line ? `${line} ${words[i]}` : words[i];
+    if (!line || ctx.measureText(test).width <= maxWidth) {
+      line = test;
+    } else {
+      lines.push(line);
+      line = words[i];
+      if (lines.length === maxLines - 1) {
+        line = words.slice(i).join(' ');
+        break;
+      }
+    }
+  }
+  if (line) lines.push(line);
+  return lines.map(ln => fitText(ctx, ln, maxWidth));
+}
+
+// Moves each aircraft along its track for the time since its position was
+// reported, so planes glide at 1 FPS instead of jumping every poll.
+function radarProject(r, nowSec) {
+  return (r.aircraft || []).map(ac => {
+    const b = ac.bearing * Math.PI / 180;
+    let xKm = ac.dist_km * Math.sin(b);
+    let yKm = ac.dist_km * Math.cos(b);
+    if (ac.gs_kt && ac.track != null) {
+      const age = Math.min(RADAR_MAX_DR, Math.max(0, nowSec - ac.pos_ts));
+      const ahead = ac.gs_kt * 1.852 / 3600 * age;
+      const t = ac.track * Math.PI / 180;
+      xKm += ahead * Math.sin(t);
+      yKm += ahead * Math.cos(t);
+    }
+    const dist = Math.hypot(xKm, yKm);
+    const bearing = (Math.atan2(xKm, yKm) * 180 / Math.PI + 360) % 360;
+    return { ...ac, xKm, yKm, dist, bearing };
+  }).sort((a, b) => a.dist - b.dist);
+}
+
+function drawRadarScope(ctx, cx, cy, R, rangeKm) {
+  // Scope disc
+  ctx.fillStyle = PALETTE.panel;
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Range rings at R and R/2, plus a crosshair
+  ctx.strokeStyle = PALETTE.track;
+  ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(cx, cy, R / 2, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(cx - R, cy); ctx.lineTo(cx + R, cy);
+  ctx.moveTo(cx, cy - R); ctx.lineTo(cx, cy + R);
+  ctx.stroke();
+
+  ctx.fillStyle = PALETTE.muted;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = 'bold 22px Outfit, sans-serif';
+  ctx.fillText('N', cx, cy - R + 24);
+
+  // Ring distances along the east axis
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'bottom';
+  ctx.font = '500 15px Inter, sans-serif';
+  ctx.fillText(`${Math.round(rangeKm / 2)}`, cx + R / 2 - 6, cy - 6);
+  ctx.fillText(`${Math.round(rangeKm)} km`, cx + R - 8, cy - 6);
+}
+
+// Airport reference marker (ICAO from settings, resolved by the backend).
+// Returns the boxes it occupies so aircraft labels steer clear of it.
+function drawRadarAirport(ctx, ap, cx, cy, R, rangeKm) {
+  if (!ap || ap.dist_km > rangeKm) return [];
+  const b = ap.bearing * Math.PI / 180;
+  const r = ap.dist_km / rangeKm * R;
+  const x = cx + r * Math.sin(b), y = cy - r * Math.cos(b);
+
+  ctx.strokeStyle = 'rgba(240, 244, 252, 0.55)';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(x, y, 12, 0, Math.PI * 2);
+  ctx.stroke();
+  // Runway bar through the ring
+  ctx.lineCap = 'round';
+  ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.moveTo(x - 13, y + 13);
+  ctx.lineTo(x + 13, y - 13);
+  ctx.stroke();
+  ctx.lineCap = 'butt';
+
+  ctx.fillStyle = 'rgba(240, 244, 252, 0.55)';
+  ctx.font = 'bold 15px Inter, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillText(ap.icao, x, y + 18);
+  const w = ctx.measureText(ap.icao).width;
+  return [
+    { x: x - 16, y: y - 16, w: 32, h: 32 },
+    { x: x - w / 2 - 2, y: y + 16, w: w + 4, h: 20 }
+  ];
+}
+
+function drawRadarAircraft(ctx, list, cx, cy, R, rangeKm, scale, reserved = []) {
+  // Boxes labels must not cover: the N marker, ring captions, home dot and
+  // airport (aircraft markers are added below)
+  const labels = [
+    { x: cx - 16, y: cy - R + 8, w: 32, h: 32 },
+    { x: cx + R / 2 - 30, y: cy - 26, w: 26, h: 22 },
+    { x: cx + R - 70, y: cy - 26, w: 64, h: 22 },
+    { x: cx - 14, y: cy - 14, w: 28, h: 28 },
+    ...reserved
+  ];
+  const overlaps = (a) => labels.some(b => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y);
+
+  // Traffic just outside the ring: a dot on the rim at its bearing
+  list.filter(ac => ac.dist > rangeKm).forEach(ac => {
+    const b = ac.bearing * Math.PI / 180;
+    ctx.fillStyle = PALETTE.muted;
+    ctx.beginPath();
+    ctx.arc(cx + R * Math.sin(b), cy - R * Math.cos(b), 3 * scale, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  const pts = list.filter(ac => ac.dist <= rangeKm).map(ac => ({
+    ac,
+    x: cx + ac.xKm / rangeKm * R,
+    y: cy - ac.yKm / rangeKm * R,
+    color: radarAltColor(ac)
+  }));
+  const m = 6 * scale;
+  pts.forEach(p => labels.push({ x: p.x - m, y: p.y - m, w: m * 2, h: m * 2 }));
+
+  // Markers back to front, so the nearest aircraft is drawn on top; clipped
+  // to the scope so speed vectors near the rim stay inside the ring...
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, Math.PI * 2);
+  ctx.clip();
+  for (let i = pts.length - 1; i >= 0; i--) {
+    const { ac, x, y, color } = pts[i];
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    if (ac.track != null) {
+      const t = ac.track * Math.PI / 180;
+      // Speed vector, starting at the nose
+      const s = 5 * scale;
+      const len = Math.min(24, Math.max(6, (ac.gs_kt || 0) * 0.08)) * scale;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x + Math.sin(t) * s, y - Math.cos(t) * s);
+      ctx.lineTo(x + Math.sin(t) * (s + len), y - Math.cos(t) * (s + len));
+      ctx.stroke();
+      // Triangle with its nose along the track
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(t);
+      ctx.beginPath();
+      ctx.moveTo(0, -s * 1.3);
+      ctx.lineTo(s, s);
+      ctx.lineTo(0, s * 0.45);
+      ctx.lineTo(-s, s);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    } else {
+      ctx.beginPath();
+      ctx.arc(x, y, 3 * scale, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+
+  // ...but labels are placed nearest-first, so the nearest always gets one
+  ctx.textBaseline = 'top';
+  pts.forEach(({ ac, x, y, color }) => {
+    const name = ac.callsign || ac.hex.toUpperCase();
+    const alt = fmtRadarAlt(ac);
+    ctx.font = 'bold 19px Outfit, sans-serif';
+    const w1 = ctx.measureText(name).width;
+    ctx.font = '500 15px Inter, sans-serif';
+    const w2 = ctx.measureText(alt).width;
+    const w = Math.max(w1, w2);
+    const h = alt ? 40 : 22;
+    const gap = 7 * scale;
+    // Right of the marker first (left near the edge), then the other side
+    const sides = x + gap + w > cx + R + 12 ? [x - gap - w, x + gap] : [x + gap, x - gap - w];
+    let lx = null;
+    for (const sx of sides) {
+      const box = { x: sx - 2, y: y - h / 2 - 2, w: w + 4, h: h + 4 };
+      if (!overlaps(box)) { lx = sx; labels.push(box); break; }
+    }
+    if (lx === null) return; // the marker still shows, just unlabelled
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = PALETTE.ink;
+    ctx.font = 'bold 19px Outfit, sans-serif';
+    ctx.fillText(name, lx, y - h / 2);
+    if (alt) {
+      ctx.fillStyle = color;
+      ctx.font = '500 15px Inter, sans-serif';
+      ctx.fillText(alt, lx, y - h / 2 + 22);
+    }
+  });
+}
+
+function renderRadar(ctx) {
+  ctx.fillStyle = PALETTE.bg;
+  ctx.fillRect(0, 0, 960, 640);
+
+  const r = currentRadarData;
+  const ok = !!(r && r.ok);
+  const loading = !r || r.error === 'Loading...';
+  const nowSec = Date.now() / 1000;
+  const rangeKm = ok ? r.range_km : (parseFloat(radarRange.value) || 100);
+  const cx = 320, cy = 320, R = 284;
+  const scale = R / 110; // smalltv-mod's sizes are for a ~110 px radius
+
+  drawRadarScope(ctx, cx, cy, R, rangeKm);
+
+  const list = ok ? radarProject(r, nowSec) : [];
+  const inside = list.filter(ac => ac.dist <= rangeKm);
+  const outsideCount = list.length - inside.length;
+  const airportBoxes = ok ? drawRadarAirport(ctx, r.airport, cx, cy, R, rangeKm) : [];
+  if (ok) drawRadarAircraft(ctx, list, cx, cy, R, rangeKm, scale, airportBoxes);
+
+  // Home marker last, on top of everything
+  ctx.fillStyle = 'rgba(52, 211, 153, 0.25)';
+  ctx.beginPath(); ctx.arc(cx, cy, 14, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = PALETTE.disk;
+  ctx.beginPath(); ctx.arc(cx, cy, 7, 0, Math.PI * 2); ctx.fill();
+
+  // Corner captions: range (top-left), location (bottom-left)
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = PALETTE.muted;
+  ctx.font = '700 14px Inter, sans-serif';
+  ctx.fillText('RANGE', 28, 40);
+  ctx.fillStyle = PALETTE.ink;
+  ctx.font = 'bold 28px Outfit, sans-serif';
+  ctx.fillText(`${Math.round(rangeKm)} km`, 28, 72);
+  if (ok && r.home && r.home.label) {
+    ctx.fillStyle = PALETTE.muted;
+    ctx.font = '500 16px Inter, sans-serif';
+    ctx.fillText(fitText(ctx, r.home.label, 150), 28, 616);
+  }
+
+  // Right panel: count header + nearest aircraft
+  const px = 652, pw = 280;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = PALETTE.ink;
+  ctx.font = 'bold 32px Outfit, sans-serif';
+  ctx.fillText('Nearby', px, 50);
+
+  const countText = ok ? String(inside.length) : '–';
+  ctx.font = 'bold 26px Outfit, sans-serif';
+  const pillW = Math.max(52, ctx.measureText(countText).width + 30);
+  const pillX = px + pw - pillW;
+  drawCard(ctx, pillX, 30, pillW, 40, 20, inside.length ? PALETTE.cpu : PALETTE.track);
+  ctx.fillStyle = inside.length ? PALETTE.bg : PALETTE.ink;
+  ctx.textAlign = 'center';
+  ctx.fillText(countText, pillX + pillW / 2, 51);
+
+  // Red dot when the last fetch of a feed failed, or the data has gone stale
+  const stale = ok && nowSec - r.fetched_at > 600;
+  if (!loading && (!ok || r.error || stale)) {
+    ctx.fillStyle = 'rgb(255, 82, 82)';
+    ctx.beginPath(); ctx.arc(pillX - 18, 50, 7, 0, Math.PI * 2); ctx.fill();
+  }
+
+  ctx.strokeStyle = PALETTE.track;
+  ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.moveTo(px, 92); ctx.lineTo(px + pw, 92); ctx.stroke();
+
+  if (inside.length === 0) {
+    // Empty / loading / error state - coverage is thin, so this is common
+    const midY = 300;
+    ctx.save();
+    ctx.translate(px + pw / 2 - 42, midY - 140);
+    ctx.scale(3.5, 3.5);
+    ctx.strokeStyle = PALETTE.muted;
+    ctx.lineWidth = 1.4;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.stroke(PLANE_PATH);
+    ctx.restore();
+
+    let title, sub, note = '';
+    if (loading) {
+      title = 'Scanning the sky';
+      sub = 'Fetching nearby aircraft...';
+    } else if (!ok) {
+      title = 'Radar offline';
+      sub = r.error;
+    } else {
+      title = 'No aircraft in range';
+      sub = r.last_seen_ts
+        ? `Last one seen ${fmtAgo(nowSec - r.last_seen_ts)}`
+        : 'None seen since the app started';
+      if (outsideCount > 0) note = `${outsideCount} just outside the ring`;
+    }
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = PALETTE.ink;
+    ctx.font = '600 28px Outfit, sans-serif';
+    ctx.fillText(fitText(ctx, title, pw), px + pw / 2, midY + 20);
+    ctx.fillStyle = PALETTE.muted;
+    ctx.font = '400 19px Inter, sans-serif';
+    const lines = wrapLines(ctx, sub, pw, 3);
+    lines.forEach((ln, i) => ctx.fillText(ln, px + pw / 2, midY + 58 + i * 26));
+    if (note) {
+      ctx.fillStyle = PALETTE.cpu;
+      ctx.fillText(fitText(ctx, note, pw), px + pw / 2, midY + 58 + lines.length * 26 + 8);
+    }
+  } else {
+    const rowH = 88, rowGap = 10, top = 108;
+    inside.slice(0, 5).forEach((ac, i) => {
+      const y = top + i * (rowH + rowGap);
+      drawCard(ctx, px, y, pw, rowH, 16, PALETTE.panel);
+      drawCard(ctx, px + 14, y + 18, 6, rowH - 36, 3, radarAltColor(ac));
+
+      ctx.textBaseline = 'alphabetic';
+      ctx.textAlign = 'right';
+      ctx.fillStyle = PALETTE.ink;
+      ctx.font = 'bold 24px Outfit, sans-serif';
+      const distText = `${ac.dist < 10 ? ac.dist.toFixed(1) : Math.round(ac.dist)} km`;
+      ctx.fillText(distText, px + pw - 16, y + 38);
+      const distW = ctx.measureText(distText).width;
+
+      ctx.textAlign = 'left';
+      ctx.font = 'bold 26px Outfit, sans-serif';
+      ctx.fillText(fitText(ctx, ac.callsign || ac.hex.toUpperCase(), pw - 60 - distW), px + 34, y + 38);
+
+      const parts = [fmtRadarAlt(ac)];
+      if (ac.gs_kt != null) parts.push(`${Math.round(ac.gs_kt)} kt`);
+      parts.push(compassPoint(ac.bearing));
+      ctx.fillStyle = PALETTE.muted;
+      ctx.font = '400 18px Inter, sans-serif';
+      ctx.fillText(fitText(ctx, parts.filter(Boolean).join(' · '), pw - 50), px + 34, y + 70);
+    });
+  }
+
+  // Footer: feed + freshness
+  if (ok) {
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = PALETTE.muted;
+    ctx.font = '400 15px Inter, sans-serif';
+    ctx.fillText(fitText(ctx, `${r.source} · updated ${fmtAgo(nowSec - r.fetched_at)}`, pw), px, 616);
+  }
+}
+
 // --- MASTER MAIN LOOP ---
 
 function drawActiveScreen() {
@@ -1835,6 +2297,8 @@ function drawActiveScreen() {
     renderWeather(offCtx);
   } else if (currentScreen === 'pet') {
     renderPixelPet(offCtx);
+  } else if (currentScreen === 'radar') {
+    renderRadar(offCtx);
   }
 
   // Draw 2x scaled offscreen to main LCD Canvas

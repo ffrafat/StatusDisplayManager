@@ -527,6 +527,42 @@ input:checked + .slider::before {
   padding: 6px 14px;
   font-size: 13px;
 }
+/* Plane Radar card */
+.radar-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.radar-fields input,
+.radar-fields select {
+  width: 100%;
+  min-width: 0;
+}
+.radar-fields .radar-field-wide {
+  grid-column: 1 / -1;
+}
+.plugin-setting-field select {
+  background: var(--card-secondary);
+  border: 1px solid var(--control-stroke);
+  border-bottom-color: var(--stroke-strong);
+  color: var(--text-primary);
+  border-radius: var(--radius-control);
+  padding: 5px 8px;
+  font-family: var(--font);
+  font-size: 12px;
+  outline: none;
+  transition: border-color var(--dur) linear;
+}
+.plugin-setting-field select:focus {
+  border-color: var(--accent);
+}
+.plugin-setting-field select option {
+  /* Opaque: the native popup list is drawn over its own (light) background,
+     so a translucent fill would leave white text on white. */
+  background: var(--layer-alt);
+  color: var(--text-primary);
+}
+
 .card code {
   font-family: var(--font-mono);
   font-size: 11px;
