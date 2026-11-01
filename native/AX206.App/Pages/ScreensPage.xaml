@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="AX206.Pages.ScreensPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <ScrollViewer>
+        <Grid Padding="36,24,36,36">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" MaxWidth="1000" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Spacing="4">
+                <TextBlock Text="Screens" Style="{StaticResource TitleTextBlockStyle}" />
+                <TextBlock Margin="0,4,0,20" TextWrapping="Wrap"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           Text="Choose what the display rotates through and how long each screen stays up. Screens with nothing to show, like music when nothing is playing, are skipped automatically." />
+                <StackPanel x:Name="Cards" Spacing="4" />
+            </StackPanel>
+        </Grid>
+    </ScrollViewer>
+</UserControl>

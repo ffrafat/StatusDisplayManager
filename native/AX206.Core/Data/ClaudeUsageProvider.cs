@@ -31,7 +31,7 @@ public sealed class ClaudeUsageProvider() : PollingProvider<ClaudeUsage>(new Cla
         string? token = _manualToken ?? ReadCredentialsFile();
         if (token is null)
         {
-            Current = new ClaudeUsage(false, "No Claude token. Paste one in Settings or run 'claude setup-token'.");
+            Current = new ClaudeUsage(false, "No Claude token. Run 'claude setup-token' and paste it in Data sources.");
             return;
         }
 

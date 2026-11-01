@@ -54,6 +54,9 @@ public sealed class DisplayService : IDisposable
 
     public IReadOnlyList<IScreen> Screens => _screens;
 
+    /// <summary>Why the last <see cref="Connect"/> failed, or null after a successful one.</summary>
+    public string? LastConnectError { get; private set; }
+
     public bool IsConnected
     {
         get { lock (_deviceLock) return _device is not null; }
@@ -184,12 +187,14 @@ public sealed class DisplayService : IDisposable
             try
             {
                 _device = Ax206Device.Open();
+                LastConnectError = null;
                 Log?.Invoke($"AX206 display opened ({_device.DevicePath}).", LogLevel.Success);
                 ConnectionChanged?.Invoke(true);
                 return true;
             }
             catch (Exception e)
             {
+                LastConnectError = e.Message;
                 Log?.Invoke($"Failed to open display: {e.Message}", LogLevel.Error);
                 ConnectionChanged?.Invoke(false);
                 return false;

@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="AX206.Pages.SourcesPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:CommunityToolkit.WinUI.Controls"
+    Loaded="OnLoaded"
+    Unloaded="OnUnloaded">
+
+    <UserControl.Resources>
+        <Style x:Key="SectionHeader" TargetType="TextBlock" BasedOn="{StaticResource BodyStrongTextBlockStyle}">
+            <Setter Property="Margin" Value="1,24,0,8" />
+        </Style>
+    </UserControl.Resources>
+
+    <ScrollViewer>
+        <Grid Padding="36,24,36,36">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" MaxWidth="1000" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Spacing="4">
+                <TextBlock Text="Data sources" Style="{StaticResource TitleTextBlockStyle}" />
+
+                <!-- Claude -->
+                <TextBlock Text="Claude" Style="{StaticResource SectionHeader}" />
+                <controls:SettingsExpander Header="Claude usage token"
+                                           Description="Generate one with claude setup-token (it lasts about a year). Without one, the app falls back to ~/.claude/.credentials.json."
+                                           IsExpanded="True">
+                    <controls:SettingsExpander.HeaderIcon>
+                        <FontIcon Glyph="&#xE8D7;" />
+                    </controls:SettingsExpander.HeaderIcon>
+                    <controls:SettingsExpander.Items>
+                        <controls:SettingsCard ContentAlignment="Left">
+                            <StackPanel Spacing="10">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <PasswordBox x:Name="TokenBox" Width="380" PlaceholderText="Paste an access token (sk-ant-oat01-…)"
+                                                 KeyDown="TokenBox_KeyDown" />
+                                    <Button Content="Save" Style="{StaticResource AccentButtonStyle}" Click="SaveToken_Click" />
+                                    <Button x:Name="RemoveTokenButton" Content="Remove" Click="RemoveToken_Click" />
+                                </StackPanel>
+                                <TextBlock x:Name="ClaudeStatus" TextWrapping="Wrap"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </StackPanel>
+                        </controls:SettingsCard>
+                    </controls:SettingsExpander.Items>
+                </controls:SettingsExpander>
+
+                <!-- Radar -->
+                <TextBlock Text="Plane radar" Style="{StaticResource SectionHeader}" />
+                <controls:SettingsExpander Header="Location"
+                                           Description="Leave both empty to use your IP location, which is city-level and can be tens of km off.">
+                    <controls:SettingsExpander.HeaderIcon>
+                        <FontIcon Glyph="&#xE81D;" />
+                    </controls:SettingsExpander.HeaderIcon>
+                    <controls:SettingsExpander.Items>
+                        <controls:SettingsCard Header="Latitude">
+                            <NumberBox x:Name="LatBox" Width="160" Minimum="-90" Maximum="90" PlaceholderText="Automatic"
+                                       ValueChanged="Location_ValueChanged" />
+                        </controls:SettingsCard>
+                        <controls:SettingsCard Header="Longitude">
+                            <NumberBox x:Name="LonBox" Width="160" Minimum="-180" Maximum="180" PlaceholderText="Automatic"
+                                       ValueChanged="Location_ValueChanged" />
+                        </controls:SettingsCard>
+                    </controls:SettingsExpander.Items>
+                </controls:SettingsExpander>
+
+                <controls:SettingsCard Header="Range" Description="Radius of the scope, in kilometres.">
+                    <controls:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xE71E;" />
+                    </controls:SettingsCard.HeaderIcon>
+                    <NumberBox x:Name="RangeBox" Width="120" Minimum="10" Maximum="250" SmallChange="10" LargeChange="50"
+                               SpinButtonPlacementMode="Compact" ValueChanged="Range_ValueChanged" />
+                </controls:SettingsCard>
+
+                <controls:SettingsCard Header="Feed" Description="Both are free, volunteer-run ADS-B networks. Combining them gives the best coverage.">
+                    <controls:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xE709;" />
+                    </controls:SettingsCard.HeaderIcon>
+                    <ComboBox x:Name="FeedBox" Width="200" SelectionChanged="Feed_SelectionChanged">
+                        <ComboBoxItem Content="adsb.lol + OpenSky" Tag="auto" />
+                        <ComboBoxItem Content="OpenSky" Tag="opensky" />
+                        <ComboBoxItem Content="adsb.lol" Tag="adsblol" />
+                    </ComboBox>
+                </controls:SettingsCard>
+
+                <controls:SettingsCard Header="Airport marker" Description="ICAO code to mark on the scope, e.g. VGHS. Optional.">
+                    <controls:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xE913;" />
+                    </controls:SettingsCard.HeaderIcon>
+                    <TextBox x:Name="AirportBox" Width="120" MaxLength="4" CharacterCasing="Upper" PlaceholderText="None"
+                             LostFocus="Airport_Commit" KeyDown="Airport_KeyDown" />
+                </controls:SettingsCard>
+
+                <controls:SettingsCard Header="Radar status">
+                    <controls:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xE946;" />
+                    </controls:SettingsCard.HeaderIcon>
+                    <TextBlock x:Name="RadarStatus" TextWrapping="Wrap" MaxWidth="420" TextAlignment="Right"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </controls:SettingsCard>
+
+                <!-- Weather -->
+                <TextBlock Text="Weather" Style="{StaticResource SectionHeader}" />
+                <controls:SettingsCard Header="Weather" Description="Location comes from your IP address (ip-api.com); conditions from Open-Meteo, every 15 minutes.">
+                    <controls:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xE753;" />
+                    </controls:SettingsCard.HeaderIcon>
+                    <TextBlock x:Name="WeatherStatus" TextWrapping="Wrap" MaxWidth="420" TextAlignment="Right"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </controls:SettingsCard>
+            </StackPanel>
+        </Grid>
+    </ScrollViewer>
+</UserControl>
