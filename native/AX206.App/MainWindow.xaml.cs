@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Runtime.InteropServices.WindowsRuntime;
 using AX206.Core;
+using AX206.Core.Data;
 using AX206.Core.Screens;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
@@ -15,13 +16,15 @@ public sealed partial class MainWindow : Window
 {
     private const int MaxLogLines = 200;
 
-    private readonly DisplayService _display = new([new ClockScreen(), new StatsScreen()]);
+    private readonly DataHub _data = new();
+    private readonly DisplayService _display;
     private readonly WriteableBitmap _preview = new(480, 320);
     private readonly ObservableCollection<string> _log = [];
     private bool _connected;
 
     public MainWindow()
     {
+        _display = new DisplayService(ScreenCatalog.All(), _data);
         InitializeComponent();
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
@@ -35,12 +38,18 @@ public sealed partial class MainWindow : Window
         _display.ConnectionChanged += connected => DispatcherQueue.TryEnqueue(() => ShowConnection(connected));
         _display.RotationChanged += state => DispatcherQueue.TryEnqueue(() => ShowRotation(state));
         _display.Log += (message, level) => DispatcherQueue.TryEnqueue(() => AddLog(message, level));
+        _data.Log += (message, level) => DispatcherQueue.TryEnqueue(() => AddLog(message, level));
 
         AddLog("Native AX206 Display Manager started.", LogLevel.Info);
+        _data.Start();
         _display.Start();
         _ = Task.Run(_display.Connect); // opening USB can take a moment; keep the UI responsive
 
-        Closed += (_, _) => _display.Dispose();
+        Closed += (_, _) =>
+        {
+            _display.Dispose();
+            _data.Dispose();
+        };
     }
 
     private void ShowFrame(byte[] bgra)

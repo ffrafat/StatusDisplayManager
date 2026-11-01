@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using AX206.Core.Data;
 using AX206.Core.Rendering;
 using AX206.Core.Screens;
 using AX206.Core.Telemetry;
@@ -10,28 +12,38 @@ public enum LogLevel { Info, Success, Warning, Error }
 public sealed record RotationState(string Current, string Next, int SecondsLeft, bool Paused);
 
 /// <summary>
-/// The 1 FPS loop: samples stats, rotates screens, renders, raises a preview frame and pushes
-/// it to the AX206. Events fire on the loop's background thread.
+/// The 1 FPS loop: samples stats, picks the screen (rotation over the screens that are enabled
+/// and currently have something to show), renders, raises a preview frame and pushes it to
+/// the AX206. Events fire on the loop's background thread.
 /// </summary>
 public sealed class DisplayService : IDisposable
 {
+    private static readonly TimeSpan DefaultDuration = TimeSpan.FromSeconds(10);
+
     private readonly IReadOnlyList<IScreen> _screens;
+    private readonly DataHub _data;
     private readonly FrameRenderer _renderer = new();
     private readonly SystemStatsSampler _sampler = new();
     private readonly object _deviceLock = new();
     private readonly object _rotationLock = new();
+    private readonly ConcurrentDictionary<string, bool> _enabled = new();
+    private readonly ConcurrentDictionary<string, TimeSpan> _durations = new();
 
     private Ax206Device? _device;
-    private int _index;
+    private List<IScreen> _available = [];
+    private HashSet<string> _wasAvailable = [];
+    private string _currentId;
     private DateTime _screenStart = DateTime.Now;
     private bool _paused;
     private CancellationTokenSource? _cts;
     private Task? _loop;
 
-    public DisplayService(IReadOnlyList<IScreen> screens)
+    public DisplayService(IReadOnlyList<IScreen> screens, DataHub data)
     {
         if (screens.Count == 0) throw new ArgumentException("At least one screen is required.", nameof(screens));
         _screens = screens;
+        _data = data;
+        _currentId = screens[0].Id;
     }
 
     /// <summary>480x320 BGRA copy of each rendered frame.</summary>
@@ -40,12 +52,17 @@ public sealed class DisplayService : IDisposable
     public event Action<string, LogLevel>? Log;
     public event Action<RotationState>? RotationChanged;
 
-    public TimeSpan ScreenDuration { get; set; } = TimeSpan.FromSeconds(10);
+    public IReadOnlyList<IScreen> Screens => _screens;
 
     public bool IsConnected
     {
         get { lock (_deviceLock) return _device is not null; }
     }
+
+    public void SetScreenEnabled(string id, bool enabled) => _enabled[id] = enabled;
+    public bool IsScreenEnabled(string id) => _enabled.GetValueOrDefault(id, true);
+    public void SetScreenDuration(string id, TimeSpan duration) => _durations[id] = duration;
+    public TimeSpan GetScreenDuration(string id) => _durations.GetValueOrDefault(id, DefaultDuration);
 
     public void Start()
     {
@@ -69,28 +86,67 @@ public sealed class DisplayService : IDisposable
         catch (OperationCanceledException) { }
     }
 
+    private ScreenContext Snapshot() => new()
+    {
+        Now = DateTime.Now,
+        Stats = _sampler.Sample(),
+        Media = _data.Media.Current.Info,
+        Claude = _data.Claude.Current,
+        Antigravity = _data.Antigravity.Current,
+        Bangla = _data.Bangla.Current,
+        Weather = _data.Weather.Current,
+        Radar = _data.Radar.Current,
+        RadarConfig = _data.Radar.Config
+    };
+
     private void Tick()
     {
-        var stats = _sampler.Sample();
+        var context = Snapshot();
         IScreen screen;
         RotationState state;
         lock (_rotationLock)
         {
-            var now = DateTime.Now;
-            if (!_paused && now - _screenStart >= ScreenDuration)
-            {
-                _index = (_index + 1) % _screens.Count;
-                _screenStart = now;
-            }
-            screen = _screens[_index];
-            int left = (int)Math.Ceiling((ScreenDuration - (now - _screenStart)).TotalSeconds);
-            state = new RotationState(screen.Title, _screens[(_index + 1) % _screens.Count].Title, Math.Max(0, left), _paused);
+            screen = Rotate(context);
+            int index = _available.FindIndex(s => s.Id == screen.Id);
+            var next = _available[(index + 1) % _available.Count];
+            int left = (int)Math.Ceiling((GetScreenDuration(screen.Id) - (context.Now - _screenStart)).TotalSeconds);
+            state = new RotationState(screen.Title, next.Title, Math.Max(0, left), _paused);
         }
 
-        _renderer.Render(screen, new ScreenContext { Now = DateTime.Now, Stats = stats });
+        _renderer.Render(screen, context);
         FrameRendered?.Invoke(_renderer.Bgra.ToArray());
         RotationChanged?.Invoke(state);
         Push(_renderer.Rgb565);
+    }
+
+    // updateScreenList() + the rotation step from renderer.js. Caller holds _rotationLock.
+    private IScreen Rotate(ScreenContext context)
+    {
+        var available = _screens.Where(s => IsScreenEnabled(s.Id) && s.IsAvailable(context)).ToList();
+        if (available.Count == 0) available = [_screens[0]];
+
+        var now = context.Now;
+        var preempt = available.FirstOrDefault(s => s.PreemptsWhenAvailable && !_wasAvailable.Contains(s.Id));
+        _wasAvailable = available.Select(s => s.Id).ToHashSet();
+        _available = available;
+
+        if (preempt is not null)
+        {
+            _currentId = preempt.Id;          // music just started: show it now
+            _screenStart = now;
+        }
+        else if (available.All(s => s.Id != _currentId))
+        {
+            _currentId = available[0].Id;     // the current screen has nothing to show any more
+            _screenStart = now;
+        }
+        else if (!_paused && now - _screenStart >= GetScreenDuration(_currentId))
+        {
+            int i = available.FindIndex(s => s.Id == _currentId);
+            _currentId = available[(i + 1) % available.Count].Id;
+            _screenStart = now;
+        }
+        return available.First(s => s.Id == _currentId);
     }
 
     private void Push(byte[] frame)
@@ -165,7 +221,9 @@ public sealed class DisplayService : IDisposable
     {
         lock (_rotationLock)
         {
-            _index = (_index + delta + _screens.Count) % _screens.Count;
+            if (_available.Count == 0) return;
+            int i = Math.Max(0, _available.FindIndex(s => s.Id == _currentId));
+            _currentId = _available[(i + delta + _available.Count) % _available.Count].Id;
             _screenStart = DateTime.Now;
         }
     }
