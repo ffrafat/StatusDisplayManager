@@ -1,4 +1,4 @@
-; Installer for the native AX206 Display Manager. Built by native/build-installer.ps1, which
+; Installer for the native AX206 Display Manager. Built by windows/build-installer.ps1, which
 ; passes VERSION, VERSION_NUMERIC, PUBLISH_DIR, ICON and OUTFILE.
 ;
 ; Per-user install (no admin prompt). The Electron version used the same product name, so

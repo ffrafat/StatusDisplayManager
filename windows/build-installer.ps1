@@ -1,6 +1,6 @@
 # Builds the native app as a self-contained release and wraps it in an NSIS installer.
-#   powershell -ExecutionPolicy Bypass -File native\build-installer.ps1
-# Output: native\dist\AX206-Display-Manager-Setup-<version>.exe
+#   powershell -ExecutionPolicy Bypass -File windows\build-installer.ps1
+# Output: windows\dist\AX206-Display-Manager-Setup-<version>.exe
 
 param([string]$Configuration = "Release")
 $ErrorActionPreference = "Stop"

@@ -1,5 +1,5 @@
-# Regenerates native\assets\icon.png and icon.ico from native\assets\icon.svg.
-#   powershell -ExecutionPolicy Bypass -File native\tools\make-icon.ps1
+# Regenerates windows\assets\icon.png and icon.ico from windows\assets\icon.svg.
+#   powershell -ExecutionPolicy Bypass -File windows\tools\make-icon.ps1
 # Edge (always installed on Windows 11) rasterises the SVG; each .ico frame is scaled from that.
 
 $ErrorActionPreference = "Stop"

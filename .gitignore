@@ -2,8 +2,13 @@
 *.log
 .gemini/
 
-# Native WinUI 3 app build output
-native/**/bin/
-native/**/obj/
-native/publish/
-native/dist/
+# Windows (WinUI 3) build output
+windows/**/bin/
+windows/**/obj/
+windows/publish/
+windows/dist/
+
+# macOS (Swift) build output
+mac/.build/
+mac/dist/
+mac/*.xcodeproj/xcuserdata/
