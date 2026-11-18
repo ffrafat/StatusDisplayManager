@@ -1,6 +1,5 @@
 import AX206Kit
 import Foundation
-import ServiceManagement
 import SwiftUI
 
 /// Owns the 1 Hz loop: sample the Mac, pick the screen, render, push to the panel.
@@ -57,6 +56,7 @@ final class DisplayController: ObservableObject {
 
     func start() {
         guard loop == nil else { return }
+        LoginItem.refresh(defaults: defaults)
         loop = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
@@ -101,12 +101,12 @@ final class DisplayController: ObservableObject {
     }
 
     var launchAtLogin: Bool {
-        get { SMAppService.mainApp.status == .enabled }
+        get { LoginItem.isEnabled }
         set {
             do {
-                if newValue { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+                if newValue { try LoginItem.enable() } else { try LoginItem.disable() }
             } catch {
-                status = "Launch at login: \(error.localizedDescription)"
+                status = "Open at login: \(error.localizedDescription)"
             }
             objectWillChange.send()
         }

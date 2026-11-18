@@ -27,7 +27,9 @@ mac/scripts/build-app.sh
 mac/scripts/build-app.sh --install
 ```
 
-The app lives in the menu bar (no Dock icon). **Settings…** in its menu has the larger preview, per-screen durations, 24-hour time and **Open at login**.
+The app lives in the menu bar (no Dock icon). **Settings…** in its menu, or opening the app again from Finder or Spotlight, shows the larger preview, per-screen durations, 24-hour time and **Open at login**.
+
+**Open at login** is on from the first launch. It's a per-user LaunchAgent, `~/Library/LaunchAgents/io.github.ffrafat.AX206Display.plist`, that runs `open` on the app wherever it was last launched from. Install the app with `--install` so that is `/Applications`. (Apple's `SMAppService` login items don't work reliably for ad-hoc signed apps, which is why the app uses a LaunchAgent.)
 
 ### Dev tool
 
@@ -66,7 +68,7 @@ On macOS 27 the IOReport CPU and DRAM energy counters don't advance for unprivil
 | `Sources/AX206Kit/Sensors` | SMC reader, IOReport power sampler, `SystemSampler` |
 | `Sources/AX206Kit/Rendering` | Theme and widget components; `FrameRenderer` (SwiftUI → 2x render → 480×320 → RGB565) |
 | `Sources/AX206Kit/Screens` | Clock and System screens |
-| `Sources/AX206Display` | Menu bar app: rotation loop, USB link with auto-reconnect, settings |
+| `Sources/AX206Display` | Menu bar app: rotation loop, USB link with auto-reconnect, settings window, login item |
 | `Sources/ax206ctl` | Dev tool |
 | `Sources/CIOReport` | Header for the private `libIOReport` |
 | `scripts/build-app.sh` | Builds and ad-hoc signs the `.app` |
